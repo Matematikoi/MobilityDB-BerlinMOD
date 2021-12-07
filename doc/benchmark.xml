@@ -16,7 +16,7 @@
 
 DROP FUNCTION IF EXISTS berlinmod_load();
 CREATE OR REPLACE FUNCTION berlinmod_load(scale_factor text DEFAULT '0.005',
-  path text DEFAULT '/usr/local/BerlinMOD/') 
+  path text DEFAULT '/usr/local/BerlinMOD/')
 RETURNS text AS $$
 DECLARE
   fullpath text;
@@ -31,7 +31,7 @@ BEGIN
     x2 double precision,
     y2 double precision,
     Geom geometry(LineString, 5676) );
-  EXECUTE format('COPY streets(StreetId, vmax, x1, y1, x2, y2) FROM ''%sstreets.csv'' 
+  EXECUTE format('COPY streets(StreetId, vmax, x1, y1, x2, y2) FROM ''%sstreets.csv''
     DELIMITER '','' CSV HEADER', fullpath);
   UPDATE streets
   SET Geom = ST_Transform(ST_SetSRID(ST_MakeLine(ARRAY[ST_MakePoint(x1, y1),
@@ -43,7 +43,7 @@ BEGIN
     PosX double precision,
     PosY double precision,
     Geom geometry(Point, 5676) );
-  EXECUTE format('COPY Points(PointId, PosX, PosY) FROM ''%squerypoints.csv'' 
+  EXECUTE format('COPY Points(PointId, PosX, PosY) FROM ''%squerypoints.csv''
     DELIMITER  '','' CSV HEADER', fullpath);
   UPDATE Points
   SET Geom = ST_Transform(ST_SetSRID(ST_MakePoint(PosX, PosY), 4326), 5676);
@@ -63,7 +63,7 @@ BEGIN
     YStart double precision,
     XEnd double precision,
     YEnd double precision );
-  EXECUTE format('COPY RegionsInput(RegionId, SegNo, XStart, YStart, XEnd, YEnd) 
+  EXECUTE format('COPY RegionsInput(RegionId, SegNo, XStart, YStart, XEnd, YEnd)
     FROM ''%squeryregions.csv'' DELIMITER  '','' CSV HEADER', fullpath);
 
   DROP TABLE IF EXISTS Regions CASCADE;
@@ -96,7 +96,7 @@ BEGIN
   CREATE INDEX Instants_instant_btree_idx ON Instants USING btree(instant);
 
   CREATE VIEW Instants1(InstantId, Instant) AS
-  SELECT InstantId, Instant 
+  SELECT InstantId, Instant
   FROM Instants
   LIMIT 10;
 
@@ -106,7 +106,7 @@ BEGIN
     BeginP timestamp,
     EndP timestamp,
     Period period );
-  EXECUTE format('COPY Periods(PeriodId, BeginP, EndP) FROM ''%squeryperiods.csv'' 
+  EXECUTE format('COPY Periods(PeriodId, BeginP, EndP) FROM ''%squeryperiods.csv''
     DELIMITER  '','' CSV HEADER', fullpath);
   UPDATE Periods
   SET Period = period(BeginP,EndP);
@@ -118,42 +118,42 @@ BEGIN
   FROM Periods
   LIMIT 10;
 
-  DROP TABLE IF EXISTS Cars CASCADE;
-  CREATE TABLE Cars (
-    CarId integer primary key,
+  DROP TABLE IF EXISTS Vehicles VASCADE;
+  CREATE TABLE Vehicles (
+    VehicleId integer primary key,
     Licence varchar(32),
     Type varchar(32),
     Model varchar(32) );
-  EXECUTE format('COPY Cars(CarId, Licence, Type, Model) FROM ''%sdatamcar.csv'' 
+  EXECUTE format('COPY Vehicles(VehicleId, Licence, Type, Model) FROM ''%sdatamcar.csv''
     DELIMITER  '','' CSV HEADER', fullpath);
 
-  CREATE UNIQUE INDEX Cars_CarId_idx ON Cars USING btree(CarId);
+  CREATE UNIQUE INDEX Vehicles_vehicleId_idx ON Vehicles USING btree(vehicleId);
 
   DROP TABLE IF EXISTS Licences CASCADE;
   CREATE TABLE Licences (
     LicenceId integer,
     Licence varchar(8),
-    CarId integer );
-  EXECUTE format('COPY Licences(Licence, LicenceId) FROM ''%squerylicences.csv'' 
+    VehicleId integer );
+  EXECUTE format('COPY Licences(Licence, LicenceId) FROM ''%squerylicences.csv''
     DELIMITER  '','' CSV HEADER', fullpath);
   UPDATE Licences Q
-  SET CarId = ( SELECT C.CarId FROM Cars C WHERE C.Licence = Q.Licence );
+  SET VehicleId = ( SELECT V.VehicleId FROM Vehicles V WHERE V.Licence = Q.Licence );
 
-  CREATE INDEX Licences_CarId_idx ON Licences USING btree(CarId);
+  CREATE INDEX Licences_vehicleId_idx ON Licences USING btree(vehicleId);
 
-  CREATE VIEW Licences1(LicenceId, Licence, CarId) AS
-  SELECT LicenceId, Licence, CarId
+  CREATE VIEW Licences1(LicenceId, Licence, VehicleId) AS
+  SELECT LicenceId, Licence, VehicleId
   FROM Licences
   LIMIT 10;
 
-  CREATE VIEW Licences2(LicenceId, Licence, CarId) AS
-  SELECT LicenceId, Licence, CarId
+  CREATE VIEW Licences2(LicenceId, Licence, VehicleId) AS
+  SELECT LicenceId, Licence, VehicleId
   FROM Licences
   LIMIT 10 OFFSET 10;
 
   DROP TABLE IF EXISTS TripsInput CASCADE;
   CREATE TABLE TripsInput (
-    CarId integer,
+    VehicleId integer,
     TripId integer,
     TStart timestamp without time zone,
     TEnd timestamp without time zone,
@@ -162,7 +162,7 @@ BEGIN
     XEnd double precision,
     YEnd double precision,
     Geom geometry(LineString) );
-  EXECUTE format('COPY TripsInput(CarId, TripId, TStart, TEnd, XStart, YStart, XEnd, YEnd) 
+  EXECUTE format('COPY TripsInput(VehicleId, TripId, TStart, TEnd, XStart, YStart, XEnd, YEnd)
     FROM ''%strips.csv'' DELIMITER  '','' CSV HEADER', fullpath);
   UPDATE TripsInput
   SET Geom = ST_Transform(ST_SetSRID(ST_MakeLine(ARRAY[ST_MakePoint(XStart, YStart),
@@ -170,38 +170,38 @@ BEGIN
 
   DROP TABLE IF EXISTS TripsInputInstants;
   CREATE TABLE TripsInputInstants AS (
-  SELECT CarId, TripId, TStart, XStart, YStart, 
+  SELECT VehicleId, TripId, TStart, XStart, YStart,
     ST_Transform(ST_SetSRID(ST_MakePoint(XStart, YStart), 4326), 5676) as Geom
   FROM TripsInput
   UNION ALL
-  SELECT T1.CarId, T1.TripId, T1.TEnd, T1.XEnd, T1.YEnd, 
+  SELECT T1.VehicleId, T1.TripId, T1.TEnd, T1.XEnd, T1.YEnd,
     ST_Transform(ST_SetSRID(ST_MakePoint(T1.XEnd, T1.YEnd), 4326), 5676) as Geom
   FROM TripsInput T1 INNER JOIN (
-    SELECT CarId, TripId, max(TEnd) as MaxTend
-    FROM TripsInput 
-    GROUP BY CarId, TripId
-  ) T2 ON T1.CarId = T2.CarId AND T1.TripId = T2.TripId AND T1.TEnd = T2.MaxTend );
+    SELECT VehicleId, TripId, max(TEnd) as MaxTend
+    FROM TripsInput
+    GROUP BY VehicleId, TripId
+  ) T2 ON T1.VehicleId = T2.VehicleId AND T1.TripId = T2.TripId AND T1.TEnd = T2.MaxTend );
   ALTER TABLE TripsInputInstants ADD COLUMN inst tgeompoint;
   UPDATE TripsInputInstants
   SET inst = tgeompointinst(Geom, TStart);
 
   DROP TABLE IF EXISTS Trips CASCADE;
   CREATE TABLE Trips (
-    CarId integer NOT NULL,
+    VehicleId integer NOT NULL,
     TripId integer NOT NULL,
     Trip tgeompoint,
     Traj geometry,
-    PRIMARY KEY (CarId, TripId),
-    FOREIGN KEY (CarId) REFERENCES Cars (CarId));
+    PRIMARY KEY (VehicleId, TripId),
+    FOREIGN KEY (VehicleId) REFERENCES Vehicles (VehicleId));
   INSERT INTO Trips
-  SELECT CarId, TripId, tgeompointseq(array_agg(inst ORDER BY TStart))
+  SELECT VehicleId, TripId, tgeompointseq(array_agg(inst ORDER BY TStart))
   FROM TripsInputInstants
-  GROUP BY CarId, TripId;
+  GROUP BY VehicleId, TripId;
   UPDATE Trips
   SET Traj = trajectory(Trip);
 
-  CREATE INDEX Trips_CarId_idx ON Trips USING btree(CarId);
-  CREATE UNIQUE INDEX Trips_pkey_idx ON Trips USING btree(CarId, TripId);
+  CREATE INDEX Trips_vehicleId_idx ON Trips USING btree(vehicleId);
+  CREATE UNIQUE INDEX Trips_pkey_idx ON Trips USING btree(VehicleId, TripId);
   CREATE INDEX Trips_gist_idx ON Trips USING gist(trip);
 
   DROP VIEW IF EXISTS Trips1;
@@ -233,7 +233,7 @@ SELECT berlinmod_load('0.05');
 [...]
 DROP TABLE IF EXISTS TripsInput CASCADE;
 CREATE TABLE TripsInput (
-  CarId integer,
+  VehicleId integer,
   TripId integer,
   TripDate date,
   TStart timestamp without time zone,
@@ -243,41 +243,42 @@ CREATE TABLE TripsInput (
   XEnd double precision,
   YEnd double precision,
   Geom geometry(LineString) );
-EXECUTE format('COPY TripsInput(CarId, TripId, TStart, TEnd, XStart, YStart, XEnd, YEnd) 
+EXECUTE format('COPY TripsInput(VehicleId, TripId, TStart, TEnd, XStart, YStart, XEnd, YEnd)
 FROM ''%strips.csv'' DELIMITER  '','' CSV HEADER', fullpath);
 UPDATE TripsInput
 SET Geom = ST_Transform(ST_SetSRID(ST_MakeLine(ARRAY[ST_MakePoint(XStart, YStart),
   ST_MakePoint(XEnd, YEnd)]), 4326), 5676);
-UPDATE TripsInput T1 
+UPDATE TripsInput T1
 SET TripDate = T2.TripDate
-FROM (SELECT DISTINCT TripId, date_trunc('day', MIN(TStart) OVER 
-  (PARTITION BY TripId)) AS TripDate FROM TripsInput) T2
-WHERE T1.TripId = T2.TripId;
+FROM (
+  SELECT DISTINCT TripId, date_trunc('day', MIN(TStart) OVER
+    (PARTITION BY TripId)) AS TripDate FROM TripsInput) T2
+  WHERE T1.TripId = T2.TripId;
 [...]
 DROP TABLE IF EXISTS Trips CASCADE;
 CREATE TABLE Trips (
-  CarId integer NOT NULL,
+  VehicleId integer NOT NULL,
   TripId integer NOT NULL,
   TripDate date,
   Trip tgeompoint,
   Traj geometry,
-  PRIMARY KEY (CarId, TripId, TripDate),
-  FOREIGN KEY (CarId) REFERENCES Cars (CarId) 
+  PRIMARY KEY (VehicleId, TripId, TripDate),
+  FOREIGN KEY (VehicleId) REFERENCES Vehicles (VehicleId)
 ) PARTITION BY LIST(TripDate);
 
--- Create the partitions 
+-- Create the partitions
 SELECT MIN(TripDate), MAX(TripDate) INTO mindate, maxdate FROM TripsInputInstants;
 PERFORM create_partitions_by_date('Trips', mindate, maxdate);
 
-INSERT INTO Trips(CarId, TripId, TripDate, Trip)
-SELECT CarId, TripId, TripDate, tgeompointseq(array_agg(inst ORDER BY TStart))
+INSERT INTO Trips(VehicleId, TripId, TripDate, Trip)
+SELECT VehicleId, TripId, TripDate, tgeompointseq(array_agg(inst ORDER BY TStart))
 FROM TripsInputInstants
-GROUP BY CarId, TripId, TripDate;
+GROUP BY VehicleId, TripId, TripDate;
 UPDATE Trips
 SET Traj = trajectory(Trip);
 
-CREATE INDEX Trips_CarId_idx ON Trips USING btree(CarId);
-CREATE UNIQUE INDEX Trips_pkey_idx ON Trips USING btree(CarId, TripId, TripDate);
+CREATE INDEX Trips_vehicleId_idx ON Trips USING btree(VehicleId);
+CREATE UNIQUE INDEX Trips_pkey_idx ON Trips USING btree(VehicleId, TripId, TripDate);
 CREATE INDEX Trips_gist_idx ON Trips USING gist(trip);
 [...]
 		</programlisting>
@@ -294,9 +295,9 @@ CREATE INDEX Trips_gist_idx ON Trips USING gist(trip);
 			<listitem>
 				<para>What are the models of the vehicles with licence plate numbers from <varname>Licences</varname>?</para>
 				<programlisting xml:space="preserve">
-SELECT DISTINCT L.Licence, C.Model AS Model
-FROM Cars C, Licences L
-WHERE C.Licence = L.Licence;
+SELECT DISTINCT L.Licence, V.Model AS Model
+FROM Vehicles V, Licences L
+WHERE V.Licence = L.Licence;
 </programlisting>
 			</listitem>
 
@@ -304,7 +305,7 @@ WHERE C.Licence = L.Licence;
 				<para>How many vehicles exist that are passenger cars?</para>
 				<programlisting xml:space="preserve">
 SELECT COUNT (Licence)
-FROM Cars C
+FROM Vehicles V
 WHERE Type = 'passenger';
 </programlisting>
 			</listitem>
@@ -315,7 +316,7 @@ WHERE Type = 'passenger';
 SELECT DISTINCT L.Licence, I.InstantId, I.Instant AS Instant,
   valueAtTimestamp(T.Trip, I.Instant) AS Pos
 FROM Trips T, Licences1 L, Instants1 I
-WHERE T.CarId = L.CarId AND valueAtTimestamp(T.Trip, I.Instant) IS NOT NULL
+WHERE T.VehicleId = L.VehicleId AND valueAtTimestamp(T.Trip, I.Instant) IS NOT NULL
 ORDER BY L.Licence, I.InstantId;
 </programlisting>
 			</listitem>
@@ -323,11 +324,11 @@ ORDER BY L.Licence, I.InstantId;
 			<listitem>
 				<para>Which vehicles have passed the points from <varname>Points</varname>?</para>
 				<programlisting xml:space="preserve">
-SELECT DISTINCT P.PointId, P.Geom, C.Licence
-FROM Trips T, Cars C, Points P
-WHERE T.CarId = C.CarId AND T.Trip &amp;&amp; P.Geom AND
-  ST_Intersects(trajectory(T.Trip), P.Geom) 
-ORDER BY P.PointId, C.Licence;
+SELECT DISTINCT P.PointId, P.Geom, V.Licence
+FROM Trips T, Vehicles V, Points P
+WHERE T.VehicleId = V.VehicleId AND T.Trip &amp;&amp; P.Geom AND
+  ST_Intersects(trajectory(T.Trip), P.Geom)
+ORDER BY P.PointId, V.Licence;
 </programlisting>
 			</listitem>
 
@@ -337,8 +338,8 @@ ORDER BY P.PointId, C.Licence;
 SELECT L1.Licence AS Licence1, L2.Licence AS Licence2,
   MIN(ST_Distance(trajectory(T1.Trip), trajectory(T2.Trip))) AS MinDist
 FROM Trips T1, Licences1 L1, Trips T2, Licences2 L2
-WHERE T1.CarId = L1.CarId AND T2.CarId = L2.CarId AND T1.CarId &lt; T2.CarId
-GROUP BY L1.Licence, L2.Licence 
+WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = L2.VehicleId AND T1.VehicleId &lt; T2.VehicleId
+GROUP BY L1.Licence, L2.Licence
 ORDER BY L1.Licence, L2.Licence;
 </programlisting>
 			</listitem>
@@ -347,9 +348,9 @@ ORDER BY L1.Licence, L2.Licence;
 				<para>What are the pairs of trucks that have ever been as close as 10m or less to each other?</para>
 				<programlisting xml:space="preserve">
 SELECT DISTINCT C1.Licence AS Licence1, C2.Licence AS Licence2
-FROM Trips T1, Cars C1, Trips T2, Cars C2
-WHERE T1.CarId = C1.CarId AND T2.CarId = C2.CarId AND
-  T1.CarId &lt; T2.CarId AND C1.Type = 'truck' AND C2.Type = 'truck' AND
+FROM Trips T1, Vehicles V1, Trips T2, Vehicles V2
+WHERE T1.VehicleId = C1.VehicleId AND T2.VehicleId = C2.VehicleId AND
+  T1.VehicleId &lt; T2.VehicleId AND C1.Type = 'truck' AND C2.Type = 'truck' AND
   T1.Trip &amp;&amp; expandSpatial(T2.Trip, 10) AND
   tdwithin(T1.Trip, T2.Trip, 10.0) ?= true
 ORDER BY C1.Licence, C2.Licence;
@@ -360,12 +361,12 @@ ORDER BY C1.Licence, C2.Licence;
 				<para>What are the licence plate numbers of the passenger cars that have reached the points from <varname>Points</varname> first of all passenger cars during the complete observation period?</para>
 				<programlisting xml:space="preserve">
 WITH Timestamps AS (
-  SELECT DISTINCT C.Licence, P.PointId, P.Geom, 
+  SELECT DISTINCT V.Licence, P.PointId, P.Geom,
     MIN(startTimestamp(atValue(T.Trip,P.Geom))) AS Instant
-  FROM Trips T, Cars C, Points1 P
-  WHERE T.CarId = C.CarId AND C.Type = 'passenger' AND
+  FROM Trips T, Vehicles V, Points1 P
+  WHERE T.VehicleId = V.VehicleId AND V.Type = 'passenger' AND
     T.Trip &amp;&amp; P.Geom AND ST_Intersects(trajectory(T.Trip), P.Geom)
-  GROUP BY C.Licence, P.PointId, P.Geom )
+  GROUP BY V.Licence, P.PointId, P.Geom )
 SELECT T1.Licence, T1.PointId, T1.Geom, T1.Instant
 FROM Timestamps T1
 WHERE T1.Instant &lt;= ALL (
@@ -381,8 +382,8 @@ ORDER BY T1.PointId, T1.Licence;
 				<programlisting xml:space="preserve">
 SELECT L.Licence, P.PeriodId, P.Period, SUM(length(atPeriod(T.Trip, P.Period))) AS Dist
 FROM Trips T, Licences1 L, Periods1 P
-WHERE T.CarId = L.CarId AND T.Trip &amp;&amp; P.Period
-GROUP BY L.Licence, P.PeriodId, P.Period 
+WHERE T.VehicleId = L.VehicleId AND T.Trip &amp;&amp; P.Period
+GROUP BY L.Licence, P.PeriodId, P.Period
 ORDER BY L.Licence, P.PeriodId;
 </programlisting>
 			</listitem>
@@ -391,10 +392,10 @@ ORDER BY L.Licence, P.PeriodId;
 				<para>What is the longest distance that was travelled by a vehicle during each of the periods from <varname>Periods</varname>?</para>
 				<programlisting xml:space="preserve">
 WITH Distances AS (
-  SELECT P.PeriodId, P.Period, T.CarId, SUM(length(atPeriod(T.Trip, P.Period))) AS Dist
+  SELECT P.PeriodId, P.Period, T.VehicleId, SUM(length(atPeriod(T.Trip, P.Period))) AS Dist
   FROM Trips T, Periods P
   WHERE T.Trip &amp;&amp; P.Period
-  GROUP BY P.PeriodId, P.Period, T.CarId )
+  GROUP BY P.PeriodId, P.Period, T.VehicleId )
 SELECT PeriodId, Period, MAX(Dist) AS MaxDist
 FROM Distances
 GROUP BY PeriodId, Period
@@ -406,27 +407,27 @@ ORDER BY PeriodId;
 				<para>When and where did the vehicles with licence plate numbers from <varname>Licences1</varname> meet other vehicles (distance &lt; 3m) and what are the latter licences?</para>
 				<programlisting xml:space="preserve">
 WITH Values AS (
-  SELECT DISTINCT L1.Licence AS QueryLicence, C2.Licence AS OtherLicence,
+  SELECT DISTINCT L1.Licence AS Licences, C2.Licence AS OtherLicence,
     atPeriodSet(T1.Trip, getTime(atValue(tdwithin(T1.Trip, T2.Trip, 3.0), TRUE))) AS Pos
-  FROM Trips T1, Licences1 L1, Trips T2, Licences2 C2 
-  WHERE T1.CarId = L1.CarId AND T2.CarId = C2.CarId AND T1.CarId &lt; T2.CarId AND
-    expandSpatial(T1.Trip, 3) &amp;&amp; expandSpatial(T2.Trip, 3) 
+  FROM Trips T1, Licences1 L1, Trips T2, Licences2 C2
+  WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = C2.VehicleId AND T1.VehicleId &lt; T2.VehicleId AND
+    expandSpatial(T1.Trip, 3) &amp;&amp; expandSpatial(T2.Trip, 3)
     dwithin(T1.Trip, T2.Trip, 3.0) )
-SELECT QueryLicence, OtherLicence, array_agg(Pos ORDER BY startTimestamp(Pos)) AS Pos
-FROM Values 
-GROUP BY QueryLicence, OtherLicence
-ORDER BY QueryLicence, OtherLicence;
+SELECT Licences, OtherLicence, array_agg(Pos ORDER BY startTimestamp(Pos)) AS Pos
+FROM Values
+GROUP BY Licences, OtherLicence
+ORDER BY Licences, OtherLicence;
 </programlisting>
 			</listitem>
 
 			<listitem>
 				<para>Which vehicles passed a point from <varname>Points1</varname> at one of the instants from <varname>Instants1</varname>?</para>
 				<programlisting xml:space="preserve">
-SELECT P.PointId, P.Geom, I.InstantId, I.Instant, C.Licence
-FROM Trips T, Cars C, Points1 P, Instants1 I
-WHERE T.CarId = C.CarId AND T.Trip @&gt; STBOX(P.Geom, I.Instant) AND
+SELECT P.PointId, P.Geom, I.InstantId, I.Instant, V.Licence
+FROM Trips T, Vehicles V, Points1 P, Instants1 I
+WHERE T.VehicleId = V.VehicleId AND T.Trip @&gt; stbox(P.Geom, I.Instant) AND
   valueAtTimestamp(T.Trip, I.Instant) = P.Geom
-ORDER BY P.PointId, I.InstantId, C.Licence;
+ORDER BY P.PointId, I.InstantId, V.Licence;
 </programlisting>
 			</listitem>
 
@@ -435,9 +436,9 @@ ORDER BY P.PointId, I.InstantId, C.Licence;
 				<programlisting xml:space="preserve">
 SELECT DISTINCT P.PointId, P.Geom, I.InstantId, I.Instant,
   C1.Licence AS Licence1, C2.Licence AS Licence2
-FROM Trips T1, Cars C1, Trips T2, Cars C2, Points1 P, Instants1 I
-WHERE T1.CarId = C1.CarId AND T2.CarId = C2.CarId AND T1.CarId &lt; T2.CarId AND
-  T1.Trip @&gt; STBOX(P.Geom, I.Instant) AND T2.Trip @&gt; STBOX(P.Geom, I.Instant) AND
+FROM Trips T1, Vehicles V1, Trips T2, Vehicles V2, Points1 P, Instants1 I
+WHERE T1.VehicleId = C1.VehicleId AND T2.VehicleId = C2.VehicleId AND T1.VehicleId &lt; T2.VehicleId AND
+  T1.Trip @&gt; stbox(P.Geom, I.Instant) AND T2.Trip @&gt; stbox(P.Geom, I.Instant) AND
   valueAtTimestamp(T1.Trip, I.Instant) = P.Geom AND
   valueAtTimestamp(T2.Trip, I.Instant) = P.Geom
 ORDER BY P.PointId, I.InstantId, C1.Licence, C2.Licence;
@@ -447,33 +448,33 @@ ORDER BY P.PointId, I.InstantId, C1.Licence, C2.Licence;
 			<listitem>
 				<para>Which vehicles travelled within one of the regions from <varname>Regions1</varname> during the periods from <varname>Periods1</varname>?</para>
 				<programlisting xml:space="preserve">
-SELECT DISTINCT R.RegionId, P.PeriodId, P.Period, C.Licence
-FROM Trips T, Cars C, Regions1 R, Periods1 P
-WHERE T.CarId = C.CarId AND T.trip &amp;&amp; STBOX(R.Geom, P.Period) AND
+SELECT DISTINCT R.RegionId, P.PeriodId, P.Period, V.Licence
+FROM Trips T, Vehicles V, Regions1 R, Periods1 P
+WHERE T.VehicleId = V.VehicleId AND T.trip &amp;&amp; stbox(R.Geom, P.Period) AND
   ST_Intersects(trajectory(atPeriod(T.Trip, P.Period)), R.Geom)
-ORDER BY R.RegionId, P.PeriodId, C.Licence;
+ORDER BY R.RegionId, P.PeriodId, V.Licence;
 </programlisting>
 			</listitem>
 
 			<listitem>
 				<para>Which vehicles travelled within one of the regions from <varname>Regions1</varname> at one of the instants from <varname>Instants1</varname>?</para>
 				<programlisting xml:space="preserve">
-SELECT DISTINCT R.RegionId, I.InstantId, I.Instant, C.Licence
-FROM Trips T, Cars C, Regions1 R, Instants1 I
-WHERE T.CarId = C.CarId AND T.Trip &amp;&amp; STBOX(R.Geom, I.Instant) AND
+SELECT DISTINCT R.RegionId, I.InstantId, I.Instant, V.Licence
+FROM Trips T, Vehicles V, Regions1 R, Instants1 I
+WHERE T.VehicleId = V.VehicleId AND T.Trip &amp;&amp; stbox(R.Geom, I.Instant) AND
   ST_Contains(R.Geom, valueAtTimestamp(T.Trip, I.Instant))
-ORDER BY R.RegionId, I.InstantId, C.Licence;
+ORDER BY R.RegionId, I.InstantId, V.Licence;
 </programlisting>
 			</listitem>
 
 			<listitem>
 				<para>Which vehicles passed a point from <varname>Points1</varname> during a period from <varname>Periods1</varname>?</para>
 				<programlisting xml:space="preserve">
-SELECT DISTINCT PO.PointId, PO.Geom, PR.PeriodId, PR.Period, C.Licence
-FROM Trips T, Cars C, Points1 PO, Periods1 PR
-WHERE T.CarId = C.CarId AND T.Trip &amp;&amp; STBOX(PO.Geom, PR.Period) AND
+SELECT DISTINCT PO.PointId, PO.Geom, PR.PeriodId, PR.Period, V.Licence
+FROM Trips T, Vehicles V, Points1 PO, Periods1 PR
+WHERE T.VehicleId = V.VehicleId AND T.Trip &amp;&amp; stbox(PO.Geom, PR.Period) AND
   ST_Intersects(trajectory(atPeriod(T.Trip, PR.Period)),PO.Geom)
-ORDER BY PO.PointId, PR.PeriodId, C.Licence;
+ORDER BY PO.PointId, PR.PeriodId, V.Licence;
 </programlisting>
 			</listitem>
 
@@ -482,8 +483,8 @@ ORDER BY PO.PointId, PR.PeriodId, C.Licence;
 				<programlisting xml:space="preserve">
 SELECT P.PeriodId, P.Period, R.RegionId, L1.Licence AS Licence1, L2.Licence AS Licence2
 FROM Trips T1, Licences1 L1, Trips T2, Licences2 L2, Periods1 P, Regions1 R
-WHERE T1.CarId = L1.CarId AND T2.CarId = L2.CarId AND L1.Licence &lt; L2.Licence AND
-  T1.Trip &amp;&amp; STBOX(R.Geom, P.Period) AND T2.Trip &amp;&amp; STBOX(R.Geom, P.Period) AND
+WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = L2.VehicleId AND L1.Licence &lt; L2.Licence AND
+  T1.Trip &amp;&amp; stbox(R.Geom, P.Period) AND T2.Trip &amp;&amp; stbox(R.Geom, P.Period) AND
   ST_Intersects(trajectory(atPeriod(T1.Trip, P.Period)), R.Geom) AND
   ST_Intersects(trajectory(atPeriod(T2.Trip, P.Period)), R.Geom) AND
   tintersects(atPeriod(T1.Trip, P.Period), atPeriod(T2.Trip, P.Period)) %= FALSE
@@ -495,7 +496,7 @@ ORDER BY PeriodId, RegionId, Licence1, Licence2;
 				<para>Which point(s) from <varname>Points</varname> have been visited by a maximum number of different vehicles?</para>
 				<programlisting xml:space="preserve">
 WITH PointCount AS (
-  SELECT P.PointId, COUNT(DISTINCT T.CarId) AS Hits
+  SELECT P.PointId, COUNT(DISTINCT T.VehicleId) AS Hits
   FROM Trips T, Points P
   WHERE ST_Intersects(trajectory(T.Trip), P.Geom)
   GROUP BY P.PointId )
