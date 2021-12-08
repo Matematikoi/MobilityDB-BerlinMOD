@@ -8,12 +8,12 @@
  *    detailed: states whether detailed statistics are collected during
  *      the execution. By default it is set to TRUE.
  * Example of usage:
- *     <Create the function>
- *     SELECT berlinmod_R_queries(1, true)
+ *     <Create the function, e.g., executing \i berlinmod_r_queries.sql in psql>
+ *     SELECT berlinmod_R_queries(1, true);
  * It is supposed that the BerlinMOD data with WGS84 coordinates in CSV format
  * http://dna.fernuni-hagen.de/secondo/BerlinMOD/BerlinMOD.html
- * has been previously loaded using projected (2D) coordinates with SRID 5676
- * https://epsg.io/5676
+ * has been previously loaded using projected (2D) coordinates with SRID 3812
+ * https://epsg.io/3812
  * For loading the data see the companion file 'berlinmod_load.sql'
  *****************************************************************************/
 /*
@@ -43,8 +43,9 @@ DECLARE
   Duration interval;
   NumberRows bigint;
 BEGIN
-  ExplainQuery = format('EXPLAIN (ANALYZE, FORMAT JSON) % INTO J;');
-  EXECUTE ExplainQuery;
+  ExplainQuery = format('EXPLAIN (ANALYZE, FORMAT JSON) %s INTO J;', QueryText);
+  RAISE INFO '%', ExplainQuery;
+  EXECUTE format('EXPLAIN (ANALYZE, FORMAT JSON) %s INTO J;', QueryText);
   PlanningTime := (J->0->>'Planning Time')::float;
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
@@ -86,11 +87,12 @@ LOOP
   QueryId = 'Q1';
   StartTime := clock_timestamp();
 
-  QueryText = 
-  'SELECT DISTINCT L.Licence, V.Model AS Model '
-  'FROM Vehicles V, Licences L '
-  'WHERE V.Licence = L.Licence';
-  PERFORM berlinmod_exec_query(ExperimentId, QueryId, QueryText);
+  -- TODO
+  -- QueryText = 
+  -- 'SELECT DISTINCT L.Licence, V.Model AS Model '
+  -- 'FROM Vehicles V, Licences L '
+  -- 'WHERE V.Licence = L.Licence';
+  -- PERFORM berlinmod_exec_query(ExperimentId, QueryId, QueryText);
   
   -- Query 1
   EXPLAIN (ANALYZE, FORMAT JSON)
