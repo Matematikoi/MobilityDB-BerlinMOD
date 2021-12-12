@@ -8,18 +8,18 @@
  *    detailed: states whether detailed statistics are collected during
  *      the execution. By default it is set to TRUE.
  * Example of usage:
- *     <Create the function>
- *     SELECT berlinmod_NN_queries(1, true)
+ *     <Create the function, e.g., executing \i berlinmod_nn_queries.sql in psql>
+ *     SELECT berlinmod_NN_queries(1, true);
  * It is supposed that the BerlinMOD data with WGS84 coordinates in CSV format
  * http://dna.fernuni-hagen.de/secondo/BerlinMOD/BerlinMOD.html
- * has been previously loaded using projected (2D) coordinates with SRID 5676
- * https://epsg.io/5676
+ * has been previously loaded using projected (2D) coordinates with SRID 3812
+ * https://epsg.io/3812
  * For loading the data see the companion file 'berlinmod_load.sql'
  *****************************************************************************/
 /*
 DROP TABLE IF EXISTS execution_tests_explain;
 CREATE TABLE execution_tests_explain (
-  Experiment_Id int,
+  ExperimentId int,
   Query char(5),
   StartTime timestamp,
   PlanningTime float,
@@ -35,16 +35,16 @@ CREATE OR REPLACE FUNCTION berlinmod_NN_queries(times integer,
   detailed boolean DEFAULT false)
 RETURNS text AS $$
 DECLARE
-  Query char(5);
+  QueryId char(5);
   J json;
   StartTime timestamp;
   PlanningTime float;
   ExecutionTime float;
   Duration interval;
   NumberRows bigint;
-  Experiment_Id int;
+  ExperimentId int;
 BEGIN
-FOR Experiment_Id IN 1..times
+FOR ExperimentId IN 1..times
 LOOP
   SET log_error_verbosity to terse;
 
@@ -53,7 +53,7 @@ LOOP
   -- and each instant from Instants1: Which are the 10 vehicles that have
   -- been closest to that vehicle at the given instant?
 
-  Query = 'Q18';
+  QueryId = 'Q18';
   StartTime := clock_timestamp();
 
   -- Query 18
@@ -98,19 +98,20 @@ LOOP
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
-  RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+    RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
+    trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+    RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 19: For each vehicle with a licence from Licences1 and each
   -- period from Periods1: Which points from Points have been the
   -- 3 closest to that vehicle during that period?
 
-  Query = 'Q19';
+  QueryId = 'Q19';
   StartTime := clock_timestamp();
 
   -- Query 19
@@ -158,18 +159,19 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 20: For each region from Regions1 and period from Periods1:
   -- What are the licences of the 10 vehicles that are closest to that region
   -- during the given observation period?
 
-  Query = 'Q20';
+  QueryId = 'Q20';
   StartTime := clock_timestamp();
 
   -- Query 20
@@ -211,18 +213,19 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 21: For each vehicle with a licence plate number from Licences1
   -- and each period from Periods1: Which are the 10 vehicles that are
   -- closest to that vehicle at all times during that period?
 
-  Query = 'Q21';
+  QueryId = 'Q21';
   StartTime := clock_timestamp();
 
   -- Query 21
@@ -269,18 +272,19 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 22: For each vehicle with a licence from Licences1 give the
   -- point from Points1 that was the nearest neighbour of the vehicle
   -- and the interval during which this was the case.
 
-  Query = 'Q22';
+  QueryId = 'Q22';
   StartTime := clock_timestamp();
 
   -- Query 22
@@ -331,18 +335,19 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 23 For each point from Points1 and period from Periods1: Report the licences of
   -- the vehicles, having that point as the nearest network node, and the temporal intervals, for that
   -- these relations hold during the given period.
 
-  Query = 'Q23';
+  QueryId = 'Q23';
   StartTime := clock_timestamp();
 
   -- Query 23
@@ -411,11 +416,12 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 24: For each vehicle with a licence from Licences1 and each
@@ -423,7 +429,7 @@ LOOP
   -- given vehicle as the nearest vehicle and the time intervals during which
   -- this was the case.
 
-  Query = 'Q24';
+  QueryId = 'Q24';
   StartTime := clock_timestamp();
 
   -- Query 24
@@ -496,11 +502,12 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 25 For each group of ten vehicles having ten disjoint consecutive
@@ -508,7 +515,7 @@ LOOP
   -- point(s) from Points, having the minimum aggregated distance from the
   -- given group of ten vehicles during the given period.
 
-  Query = 'Q25';
+  QueryId = 'Q25';
   StartTime := clock_timestamp();
 
   -- Query 25
@@ -542,11 +549,12 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 26 Create the ten groups of vehicles having ten disjoint consecutive
@@ -555,7 +563,7 @@ LOOP
   -- vehicle(s) within the given first group of ten vehicles, having the minimum aggregated distance
   -- from the given other group of ten vehicles during the given period.
 
-  Query = 'Q26';
+  QueryId = 'Q26';
   StartTime := clock_timestamp();
 
   -- Query 26
@@ -603,11 +611,12 @@ LOOP
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
   IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
-  trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
+  trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
-  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
+  RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   /*
   -- There are several trajectories of the same object in a period

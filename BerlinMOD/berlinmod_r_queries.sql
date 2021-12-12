@@ -56,8 +56,8 @@ BEGIN
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 END;
 $$ LANGUAGE 'plpgsql';
 
@@ -88,12 +88,12 @@ LOOP
   StartTime := clock_timestamp();
 
   -- TODO
-  -- QueryText = 
+  -- QueryText =
   -- 'SELECT DISTINCT L.Licence, V.Model AS Model '
   -- 'FROM Vehicles V, Licences L '
   -- 'WHERE V.Licence = L.Licence';
   -- PERFORM berlinmod_exec_query(ExperimentId, QueryId, QueryText);
-  
+
   -- Query 1
   EXPLAIN (ANALYZE, FORMAT JSON)
   SELECT DISTINCT L.Licence, V.Model AS Model
@@ -111,8 +111,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+      (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 2: How many vehicles exist that are passenger cars?
@@ -137,8 +137,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 3: Where have the vehicles with licences from Licences1 been
@@ -179,8 +179,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 4: Which vehicles have passed the points from Points?
@@ -207,8 +207,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 5: What is the minimum distance between places, where a vehicle with a
@@ -219,16 +219,14 @@ LOOP
   StartTime := clock_timestamp();
 
   -- Query 5
-  /* Slower version of the query
+  /* Slower versions of the query
   SELECT L1.Licence AS Licence1, L2.Licence AS Licence2,
     MIN(ST_Distance(trajectory(T1.Trip), trajectory(T2.Trip))) AS MinDist
   FROM Trips T1, Licences1 L1, Trips T2, Licences2 L2
   WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = L2.VehicleId
   GROUP BY L1.Licence, L2.Licence
   ORDER BY L1.Licence, L2.Licence
-  */
 
-  EXPLAIN (ANALYZE, FORMAT JSON)
   WITH Temp1(Licence1, Trajs) AS (
     SELECT L1.Licence, ST_Collect(trajectory(T1.Trip))
     FROM Trips T1, Licences1 L1
@@ -242,6 +240,15 @@ LOOP
   SELECT Licence1, Licence2, ST_Distance(T1.Trajs, T2.Trajs) AS MinDist
   FROM Temp1 T1, Temp2 T2
   ORDER BY Licence1, Licence2
+  */
+
+  EXPLAIN (ANALYZE, FORMAT JSON)
+  SELECT L1.Licence AS Licence1, L2.Licence AS Licence2,
+    MIN(minValue(T1.Trip <-> T2.Trip)) AS MinDist
+  FROM Trips T1, Licences1 L1, Trips T2, Licences2 L2
+  WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = L2.VehicleId
+  GROUP BY L1.Licence, L2.Licence
+  ORDER BY L1.Licence, L2.Licence
   INTO J;
 
   PlanningTime := (J->0->>'Planning Time')::float;
@@ -254,8 +261,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 6: What are the pairs of licence plate numbers of “trucks”
@@ -300,8 +307,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
   --set enable_indexscan = on;
   --set enable_seqscan =on;
   -------------------------------------------------------------------------------
@@ -340,8 +347,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 8: What are the overall travelled distances of the vehicles with licence
@@ -370,8 +377,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 9: What is the longest distance that was travelled by a vehicle during
@@ -403,8 +410,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 10: When and where did the vehicles with licence plate numbers from
@@ -418,18 +425,18 @@ LOOP
   clause and the SELECT clauses are executed twice
   EXPLAIN (ANALYZE, FORMAT JSON)
   SELECT L1.Licence AS Licence1, T2.VehicleId AS Vehic2Id,
-    getTime(atValue(tdwithin(T1.Trip, T2.Trip, 3.0), TRUE)) AS Periods
+    getTime(tdwithin(T1.Trip, T2.Trip, 3.0, TRUE)) AS Periods
   FROM Trips T1, Licences1 L1, Trips T2, Vehicles V
   WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = V.VehicleId AND T1.VehicleId <> T2.VehicleId
   AND T2.Trip && expandspatial(T1.trip, 3)
-  AND atValue(tdwithin(T1.Trip, T2.Trip, 3.0), TRUE) IS NOT NULL
+  AND tdwithin(T1.Trip, T2.Trip, 3.0, TRUE) IS NOT NULL
   INTO J;
   */
 
   EXPLAIN (ANALYZE, FORMAT JSON)
   WITH Temp AS (
     SELECT L1.Licence AS Licence1, T2.VehicleId AS Vehic2Id,
-    atValue(tdwithin(T1.Trip, T2.Trip, 3.0), TRUE) AS atValue
+    tdwithin(T1.Trip, T2.Trip, 3.0, TRUE) AS atValue
     FROM Trips T1, Licences1 L1, Trips T2, Vehicles V
     WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = V.VehicleId AND T1.VehicleId <> T2.VehicleId
     AND T2.Trip && expandspatial(T1.trip, 3) )
@@ -448,8 +455,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 11: Which vehicles passed a point from Points1 at one of the
@@ -479,8 +486,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
   --set enable_seqscan =on;
   -------------------------------------------------------------------------------
   -- Query 12: Which vehicles met at a point from Points1 at an instant
@@ -513,8 +520,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 13: Which vehicles travelled within one of the regions from
@@ -557,8 +564,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
   --set enable_seqscan =on;
   -------------------------------------------------------------------------------
   -- Query 14: Which vehicles travelled within one of the regions from
@@ -598,8 +605,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
   --set enable_seqscan =on;
   -------------------------------------------------------------------------------
   -- Query 15: Which vehicles passed a point from Points1 during a period
@@ -641,8 +648,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
   --set enable_seqscan =on;
 
   -------------------------------------------------------------------------------
@@ -677,8 +684,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 17: Which point(s) from Points have been visited by a
@@ -708,8 +715,8 @@ LOOP
   ELSE
     RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(QueryId), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests_explain
-  VALUES (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
+  INSERT INTO execution_tests_explain VALUES
+    (ExperimentId, trim(QueryId), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 END LOOP;
 -------------------------------------------------------------------------------
 
