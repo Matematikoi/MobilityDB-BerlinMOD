@@ -193,7 +193,8 @@ LOOP
   SELECT DISTINCT P.PointId, P.geom, V.Licence
   FROM Trips T, Vehicles V, Points P
   WHERE T.VehicleId = V.VehicleId
-  AND ST_Intersects(trajectory(T.Trip), P.geom)
+  -- AND ST_Intersects(trajectory(T.Trip), P.geom)
+  AND Trip && P.Geom AND T.Trip ?= P.geom
   ORDER BY P.PointId, V.Licence
   INTO J;
 
@@ -278,7 +279,7 @@ LOOP
   WHERE T1.VehicleId = V1.VehicleId AND T2.VehicleId = V2.VehicleId
   AND T1.VehicleId < T2.VehicleId AND V1.Type = 'truck' AND V2.Type = 'truck'
   AND T1.Trip && expandSpatial(T2.Trip, 10)
-  AND tdwithin(T1.Trip, T2.Trip, 10.0) ?= true
+  AND dwithin(T1.Trip, T2.Trip, 10.0)
   ORDER BY V1.Licence, V2.Licence
   INTO J;
   */
@@ -293,7 +294,7 @@ LOOP
   FROM Temp T1, Temp T2
   WHERE T1.VehicleId < T2.VehicleId
   AND T1.Trip && expandSpatial(T2.Trip, 10)
-  AND tdwithin(T1.Trip, T2.Trip, 10.0) ?= true
+  AND dwithin(T1.Trip, T2.Trip, 10.0)
   ORDER BY T1.Licence, T2.Licence
   INTO J;
 
@@ -326,7 +327,8 @@ LOOP
       MIN(startTimestamp(atValue(T.Trip,P.geom))) AS Instant
     FROM Trips T, Vehicles V, Points P
     WHERE T.VehicleId = V.VehicleId AND V.Type = 'passenger'
-    AND ST_Intersects(trajectory(T.Trip), P.geom)
+    -- AND ST_Intersects(trajectory(T.Trip), P.geom)
+    AND Trip && P.Geom AND T.Trip ?= P.geom
     GROUP BY V.Licence, P.PointId, P.geom )
   SELECT T1.Licence, T1.PointId, T1.geom, T1.Instant
   FROM Temp T1
@@ -530,28 +532,14 @@ LOOP
   StartTime := clock_timestamp();
 
   -- Query 13
-  /* Flat version
   EXPLAIN (ANALYZE, FORMAT JSON)
   SELECT DISTINCT R.RegionId, P.PeriodId, P.Period, V.Licence
   FROM Trips T, Vehicles V, Regions1 R, Periods1 P
   WHERE T.VehicleId = V.VehicleId
   AND T.trip && stbox(R.geom, P.Period)
-  AND _ST_Intersects(trajectory(atPeriod(T.Trip, P.Period)), R.geom)
+--  AND _ST_Intersects(trajectory(atPeriod(T.Trip, P.Period)), R.geom)
+  AND _intersects(atPeriod(T.Trip, P.Period), R.geom)
   ORDER BY R.RegionId, P.PeriodId, V.Licence
-  INTO J;
-  */
-  -- Modified version
-  EXPLAIN (ANALYZE, FORMAT JSON)
-  WITH Temp AS (
-    SELECT DISTINCT R.RegionId, P.PeriodId, P.Period, T.VehicleId
-    FROM Trips T, Regions1 R, Periods1 P
-    WHERE T.trip && stbox(R.geom, P.Period)
-    AND _ST_Intersects(trajectory(atPeriod(T.Trip, P.Period)), R.geom)
-    ORDER BY R.RegionId, P.PeriodId )
-  SELECT DISTINCT T.RegionId, T.PeriodId, T.Period, V.Licence
-  FROM Temp T, Vehicles V
-  WHERE T.VehicleId = V.VehicleId
-  ORDER BY T.RegionId, T.PeriodId, V.Licence
   INTO J;
 
   PlanningTime := (J->0->>'Planning Time')::float;
@@ -631,7 +619,8 @@ LOOP
     SELECT DISTINCT PO.PointId, PO.geom, PR.PeriodId, PR.Period, T.VehicleId
     FROM Trips T, Points1 PO, Periods1 PR
     WHERE T.Trip && stbox(PO.geom, PR.Period)
-    AND _ST_Intersects(trajectory(atPeriod(T.Trip, PR.Period)), PO.geom) )
+    -- AND _ST_Intersects(trajectory(atPeriod(T.Trip, PR.Period)), PO.geom) )
+    AND atPeriod(T.Trip, PR.Period) ?= PO.geom )
   SELECT DISTINCT T.PointId, T.geom, T.PeriodId, T.Period, V.Licence
   FROM Temp T, Vehicles V
   WHERE T.VehicleId = V.VehicleId
@@ -663,14 +652,13 @@ LOOP
 
   -- Query 16
   EXPLAIN (ANALYZE, FORMAT JSON)
-  SELECT P.PeriodId, P.Period, R.RegionId,
+  SELECT DISTINCT P.PeriodId, P.Period, R.RegionId,
     L1.Licence AS Licence1, L2.Licence AS Licence2
   FROM Trips T1, Licences1 L1, Trips T2, Licences2 L2, Periods1 P, Regions1 R
   WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = L2.VehicleId AND L1.Licence < L2.Licence
-  -- AND T1.Trip && stbox(R.geom, P.Period) AND T2.Trip && stbox(R.geom, P.Period)
-  AND _ST_Intersects(trajectory(atPeriod(T1.Trip, P.Period)), R.geom)
-  AND _ST_Intersects(trajectory(atPeriod(T2.Trip, P.Period)), R.geom)
-  AND tintersects(atPeriod(T1.Trip, P.Period), atPeriod(T2.Trip, P.Period)) %= FALSE
+  AND intersects(atPeriod(T1.Trip, P.Period), R.geom)
+  AND intersects(atPeriod(T2.Trip, P.Period), R.geom)
+  AND tintersects(atPeriod(T1.Trip, P.Period), atPeriod(T2.Trip, P.Period), TRUE) IS NULL
   ORDER BY PeriodId, RegionId, Licence1, Licence2
   INTO J;
 
@@ -698,7 +686,8 @@ LOOP
   WITH PointCount AS (
     SELECT P.PointId, COUNT(DISTINCT T.VehicleId) AS Hits
     FROM Trips T, Points P
-    WHERE ST_Intersects(trajectory(T.Trip), P.geom)
+    -- WHERE ST_Intersects(trajectory(T.Trip), P.geom)
+    WHERE Trip && P.Geom AND T.Trip ?= P.geom
     GROUP BY P.PointId )
   SELECT PointId, Hits
   FROM PointCount AS P
