@@ -183,7 +183,7 @@ BEGIN
   ) T2 ON T1.VehicleId = T2.VehicleId AND T1.TripId = T2.TripId AND T1.TEnd = T2.MaxTend );
   ALTER TABLE TripsInputInstants ADD COLUMN inst tgeompoint;
   UPDATE TripsInputInstants
-  SET inst = tgeompointinst(Geom, TStart);
+  SET inst = tgeompoint_inst(Geom, TStart);
 
   DROP TABLE IF EXISTS Trips CASCADE;
   CREATE TABLE Trips (
@@ -194,7 +194,7 @@ BEGIN
     PRIMARY KEY (VehicleId, TripId),
     FOREIGN KEY (VehicleId) REFERENCES Vehicles (VehicleId));
   INSERT INTO Trips
-  SELECT VehicleId, TripId, tgeompointseq(array_agg(inst ORDER BY TStart))
+  SELECT VehicleId, TripId, tgeompoint_seq(array_agg(inst ORDER BY TStart))
   FROM TripsInputInstants
   GROUP BY VehicleId, TripId;
   UPDATE Trips
@@ -271,7 +271,7 @@ SELECT MIN(TripDate), MAX(TripDate) INTO mindate, maxdate FROM TripsInputInstant
 PERFORM create_partitions_by_date('Trips', mindate, maxdate);
 
 INSERT INTO Trips(VehicleId, TripId, TripDate, Trip)
-SELECT VehicleId, TripId, TripDate, tgeompointseq(array_agg(inst ORDER BY TStart))
+SELECT VehicleId, TripId, TripDate, tgeompoint_seq(array_agg(inst ORDER BY TStart))
 FROM TripsInputInstants
 GROUP BY VehicleId, TripId, TripDate;
 UPDATE Trips

@@ -1,12 +1,12 @@
 /******************************************************************************
- * Loads the BerlinMOD data with WGS84 coordinates in CSV format 
- * http://dna.fernuni-hagen.de/secondo/BerlinMOD/BerlinMOD.html  
+ * Loads the BerlinMOD data with WGS84 coordinates in CSV format
+ * http://dna.fernuni-hagen.de/secondo/BerlinMOD/BerlinMOD.html
  * into MobilityDB using projected (2D) coordinates with SRID 5676
  * https://epsg.io/5676
  * Parameters:
  *    fullpath: states the full path in which the CSV files are located.
  *    gist: states whether GiST or SP-GiST indexes are created on the tables.
- *      By default it is set to TRUE. 
+ *      By default it is set to TRUE.
  * Example of usage:
  *     CREATE EXTENSION mobilitydb CASCADE;
  *     <Create the function>
@@ -14,7 +14,7 @@
  *****************************************************************************/
 
 DROP FUNCTION IF EXISTS berlinmod_load(fullpath text, gist bool);
-CREATE OR REPLACE FUNCTION berlinmod_load(fullpath text, gist bool DEFAULT TRUE) 
+CREATE OR REPLACE FUNCTION berlinmod_load(fullpath text, gist bool DEFAULT TRUE)
 RETURNS text AS $$
 BEGIN
   DROP TABLE IF EXISTS streets;
@@ -49,7 +49,7 @@ BEGIN
   ELSE
     CREATE INDEX Points_geom_spgist_idx ON Points USING spgist(geom);
   END IF;
-  
+
   /* There are duplicate points in Points
   SELECT count(*)
   FROM Points P1, Points P2
@@ -60,12 +60,12 @@ BEGIN
 
   /* Remove duplicates in Points
   DELETE FROM Points Q1
-  WHERE EXISTS (SELECT * FROM Points Q2 
+  WHERE EXISTS (SELECT * FROM Points Q2
   WHERE Q1.PointId < Q2.PointId AND Q1.Geom = Q2.Geom );
   -- SELECT COUNT(*) FROM Points;
   -- 96
   */
-  
+
   CREATE VIEW Points1 (PointId, PosX, PosY, geom) AS
   SELECT PointId, PosX, PosY, geom
   FROM Points
@@ -82,7 +82,7 @@ BEGIN
     YEnd double precision
   );
   EXECUTE format('COPY RegionsInput(RegionId, SegNo, XStart, YStart, XEnd, YEnd) FROM ''%squeryregions.csv'' DELIMITER  '','' CSV HEADER', fullpath);
-  
+
   DROP TABLE IF EXISTS Regions CASCADE;
   CREATE TABLE Regions
   (
@@ -98,7 +98,7 @@ BEGIN
   )
   SELECT RegionId, ST_Polygon(ST_LineMerge(ST_Union(geom order by SegNo)),5676) AS geom
   FROM RegionsSegs
-  GROUP BY RegionId;  
+  GROUP BY RegionId;
 
   IF gist THEN
     CREATE INDEX Regions_geom_gist_idx ON Regions USING spgist (geom);
@@ -110,7 +110,7 @@ BEGIN
   SELECT RegionId, geom
   FROM Regions
   LIMIT 10;
-  
+
   DROP TABLE IF EXISTS Instants CASCADE;
   CREATE TABLE Instants
   (
@@ -120,7 +120,7 @@ BEGIN
   EXECUTE format('COPY Instants(InstantId, Instant) FROM ''%squeryinstants.csv'' DELIMITER  '','' CSV HEADER', fullpath);
 
   CREATE INDEX Instants_instant_btree_idx ON Instants USING btree (instant);
-  
+
   /* There are NO duplicate instants in Instants
   SELECT count(*)
   FROM Instants I1, Instants I2
@@ -129,10 +129,10 @@ BEGIN
   */
 
   CREATE VIEW Instants1 (InstantId, Instant) AS
-  SELECT InstantId, Instant 
+  SELECT InstantId, Instant
   FROM Instants
   LIMIT 10;
-  
+
   DROP TABLE IF EXISTS Periods CASCADE;
   CREATE TABLE Periods
   (
@@ -150,19 +150,19 @@ BEGIN
   ELSE
     CREATE INDEX Periods_Period_spgist_idx ON Periods USING spgist (Period);
   END IF;
-  
+
   /* There are NO duplicate points in Periods
   SELECT count(*)
   FROM Periods P1, Periods P2
   where P1.PeriodId < P2.PeriodId AND
   P1.BeginP = P2.BeginP AND P1.EndP = P2.EndP
   */
-  
+
   CREATE VIEW Periods1 (PeriodId, BeginP, EndP, Period) AS
   SELECT PeriodId, BeginP, EndP, Period
   FROM Periods
   LIMIT 10;
-  
+
   DROP TABLE IF EXISTS Cars CASCADE;
   CREATE TABLE Cars
   (
@@ -172,9 +172,9 @@ BEGIN
     Model varchar(32)
   );
   EXECUTE format('COPY Cars(CarId, Licence, Type, Model) FROM ''%sdatamcar.csv'' DELIMITER  '','' CSV HEADER', fullpath);
-  
+
   CREATE UNIQUE INDEX Cars_CarId_idx ON Cars USING btree (CarId);
-  
+
   DROP TABLE IF EXISTS Licences CASCADE;
   CREATE TABLE Licences
   (
@@ -187,19 +187,19 @@ BEGIN
   SET CarId = ( SELECT C.CarId FROM Cars C WHERE C.Licence = Q.Licence );
 
   CREATE INDEX Licences_CarId_idx ON Licences USING btree (CarId);
-  
+
   /* There are duplicates in Licences
   SELECT licence, count(*) as count
-  FROM Licences 
+  FROM Licences
   GROUP BY Licence
-  ORDER BY count desc  
+  ORDER BY count desc
   */
 
   /*
   -- Remove duplicates from Licences
   DELETE FROM Licences L1
-  WHERE EXISTS (SELECT * FROM Licences L2 
-  WHERE L1.LicenceId < L2.LicenceId 
+  WHERE EXISTS (SELECT * FROM Licences L2
+  WHERE L1.LicenceId < L2.LicenceId
   AND L1.CarId = L2.CarId AND L1.Licence = L2.Licence );
   -- SELECT COUNT(*) FROM Licences;
   -- 67
@@ -209,7 +209,7 @@ BEGIN
   SELECT LicenceId, Licence, CarId
   FROM Licences
   LIMIT 10;
-  
+
   CREATE VIEW Licences2 (LicenceId, Licence, CarId) AS
   SELECT LicenceId, Licence, CarId
   FROM Licences
@@ -237,21 +237,21 @@ BEGIN
 
   DROP TABLE IF EXISTS berlinmod_input_instants;
   CREATE TABLE berlinmod_input_instants AS (
-  SELECT moid, tripid, tstart, xstart, ystart, 
+  SELECT moid, tripid, tstart, xstart, ystart,
     ST_Transform(ST_SetSRID(ST_MakePoint(xstart,ystart),4326),5676) as geom
   FROM TripsInput
   UNION ALL
-  SELECT b1.moid, b1.tripid, b1.tend, b1.xend, b1.yend, 
+  SELECT b1.moid, b1.tripid, b1.tend, b1.xend, b1.yend,
     ST_Transform(ST_SetSRID(ST_MakePoint(b1.xend,b1.yend),4326),5676) as geom
   FROM TripsInput b1
   inner join (
     SELECT moid, tripid, max(tend) as MaxTend
-    FROM TripsInput 
+    FROM TripsInput
     GROUP BY moid, tripid
   ) b2 ON b1.moid = b2.moid AND b1.tripid = b2.tripid AND b1.tend = b2.MaxTend );
   ALTER TABLE berlinmod_input_instants ADD COLUMN inst tgeompoint;
   UPDATE berlinmod_input_instants
-  SET inst = tgeompointinst(geom, tstart);
+  SET inst = tgeompoint_inst(geom, tstart);
 
   DROP TABLE IF EXISTS Trips CASCADE;
   CREATE TABLE Trips
@@ -261,10 +261,10 @@ BEGIN
     Trip tgeompoint,
     Traj geometry,
     PRIMARY KEY (CarId, TripId),
-    FOREIGN KEY (CarId) REFERENCES Cars (CarId) 
+    FOREIGN KEY (CarId) REFERENCES Cars (CarId)
   );
   INSERT INTO Trips
-    SELECT moid, tripid, tgeompointseq(array_agg(inst order by tstart), true, false)
+    SELECT moid, tripid, tgeompoint_seq(array_agg(inst order by tstart), true, false)
     FROM berlinmod_input_instants
     GROUP BY moid, tripid;
   UPDATE Trips
@@ -278,16 +278,16 @@ BEGIN
   ELSE
     CREATE INDEX Trips_spgist_idx ON Trips USING spgist (trip);
   END IF;
-  
+
   DROP VIEW IF EXISTS Trips1;
   CREATE VIEW Trips1 AS
   SELECT * FROM Trips LIMIT 100;
-  
+
 -------------------------------------------------------------------------------
 /*
--- Loads the BerlinMOD dataset using PostGIS trajectories  
+-- Loads the BerlinMOD dataset using PostGIS trajectories
 -- https://postgis.net/docs/reference.html#Temporal
-   
+
   DROP TABLE IF EXISTS TripsGeo3DM;
   CREATE TABLE TripsGeo3DM AS
   SELECT CarId, TripId, Trip::geometry AS Trip
