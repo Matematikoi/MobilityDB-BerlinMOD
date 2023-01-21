@@ -1277,19 +1277,19 @@ BEGIN
     IF hmNode IS NULL OR wrkNode IS NULL THEN
       RAISE EXCEPTION '    The home and the work nodes cannot be NULL';
     END IF;
-    -- Fill the Vehicles table 
+    -- Fill the Vehicles table
     vehicLic = berlinmod_createLicence(i);
     vehicType = berlinmod_vehicleType();
     vehicModel = berlinmod_vehicleModel();
     INSERT INTO Vehicles(vehicleId, licence, type, model)
       VALUES (i, vehicLic, vehicType, vehicModel);
-    -- Fill the HomeWork table 
+    -- Fill the HomeWork table
     INSERT INTO HomeWork(vehicleId, homeNode, workNode)
       VALUES (i, hmNode, wrkNode);
-    -- Fill the Destinations table 
+    -- Fill the Destinations table
     INSERT INTO Destinations(vehicleId, sourceNode, targetNode)
       VALUES (i, hmNode, wrkNode), (i, wrkNode, hmNode);
-    -- Fill the Neighbourhoods table 
+    -- Fill the Neighbourhoods table
     INSERT INTO Neighbourhoods(vehicleId, seq, nodeId)
       WITH Temp AS (
         SELECT i AS vehicleId, N2.nodeId
@@ -1349,12 +1349,12 @@ BEGIN
   -- Random periods
 
   DROP TABLE IF EXISTS Periods CASCADE;
-  CREATE TABLE Periods(periodId int PRIMARY KEY, period period);
+  CREATE TABLE Periods(periodId int PRIMARY KEY, period tstzspan);
   INSERT INTO Periods(periodId, period)
     WITH Temp AS (
       SELECT id, startDay + (random() * noDays) * interval '1 day' AS instant
       FROM generate_series(1, P_SAMPLE_SIZE) id )
-    SELECT id, Period(instant, instant + abs(random_gauss()) * interval '1 day',
+    SELECT id, span(instant, instant + abs(random_gauss()) * interval '1 day',
       true, true) AS period
     FROM Temp;
   -- Build indexes to speed up processing

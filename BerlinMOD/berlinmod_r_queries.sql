@@ -16,19 +16,6 @@
  * https://epsg.io/3812
  * For loading the data see the companion file 'berlinmod_load.sql'
  *****************************************************************************/
-/*
-DROP TABLE IF EXISTS execution_tests_explain;
-CREATE TABLE execution_tests_explain (
-  ExperimentId int,
-  QueryId char(5),
-  StartTime timestamp,
-  PlanningTime float,
-  ExecutionTime float,
-  Duration interval,
-  NumberRows bigint,
-  J json
-);
-*/
 
 DROP FUNCTION IF EXISTS berlinmod_exec_query;
 CREATE OR REPLACE FUNCTION berlinmod_exec_query(ExperimentId int,
@@ -63,7 +50,7 @@ $$ LANGUAGE 'plpgsql';
 
 DROP FUNCTION IF EXISTS berlinmod_R_queries;
 CREATE OR REPLACE FUNCTION berlinmod_R_queries(times integer,
-  detailed boolean DEFAULT false)
+  newtable boolean DEFAULT true, detailed boolean DEFAULT false)
 RETURNS text AS $$
 DECLARE
   QueryId char(5);
@@ -76,6 +63,20 @@ DECLARE
   NumberRows bigint;
   ExperimentId int;
 BEGIN
+IF newtable THEN
+  DROP TABLE IF EXISTS execution_tests_explain;
+  CREATE TABLE execution_tests_explain (
+    ExperimentId int,
+    QueryId char(5),
+    StartTime timestamp,
+    PlanningTime float,
+    ExecutionTime float,
+    Duration interval,
+    NumberRows bigint,
+    J json
+  );
+END IF;
+
 FOR ExperimentId IN 1..times
 LOOP
   SET log_error_verbosity to terse;
@@ -362,7 +363,7 @@ LOOP
   -- Query 8
   EXPLAIN (ANALYZE, FORMAT JSON)
   SELECT L.Licence, P.PeriodId, P.Period,
-  SUM(length(atPeriod(T.Trip, P.Period))) AS Dist
+  SUM(length(atTime(T.Trip, P.Period))) AS Dist
   FROM Trips T, Licences1 L, Periods1 P
   WHERE T.VehicleId = L.VehicleId AND T.Trip && P.Period
   GROUP BY L.Licence, P.PeriodId, P.Period
@@ -392,7 +393,7 @@ LOOP
   EXPLAIN (ANALYZE, FORMAT JSON)
   WITH Distances AS (
     SELECT P.PeriodId, P.Period, T.VehicleId,
-      SUM(length(atPeriod(T.Trip, P.Period))) AS Dist
+      SUM(length(atTime(T.Trip, P.Period))) AS Dist
     FROM Trips T, Periods P
     WHERE T.Trip && P.Period
     GROUP BY P.PeriodId, P.Period, T.VehicleId )
@@ -537,8 +538,8 @@ LOOP
   FROM Trips T, Vehicles V, Regions1 R, Periods1 P
   WHERE T.VehicleId = V.VehicleId
   AND T.trip && stbox(R.geom, P.Period)
---  AND _ST_Intersects(trajectory(atPeriod(T.Trip, P.Period)), R.geom)
-  AND _intersects(atPeriod(T.Trip, P.Period), R.geom)
+--  AND _ST_Intersects(trajectory(atTime(T.Trip, P.Period)), R.geom)
+  AND intersects(atTime(T.Trip, P.Period), R.geom)
   ORDER BY R.RegionId, P.PeriodId, V.Licence
   INTO J;
 
@@ -609,7 +610,7 @@ LOOP
   FROM Trips T, Vehicles V, Points1 PO, Periods1 PR
   WHERE T.VehicleId = V.VehicleId
   AND T.Trip && stbox(PO.geom, PR.Period)
-  AND _ST_Intersects(trajectory(atPeriod(T.Trip, PR.Period)), PO.geom)
+  AND _ST_Intersects(trajectory(atTime(T.Trip, PR.Period)), PO.geom)
   ORDER BY PO.PointId, PR.PeriodId, V.Licence
   INTO J;
   */
@@ -619,8 +620,8 @@ LOOP
     SELECT DISTINCT PO.PointId, PO.geom, PR.PeriodId, PR.Period, T.VehicleId
     FROM Trips T, Points1 PO, Periods1 PR
     WHERE T.Trip && stbox(PO.geom, PR.Period)
-    -- AND _ST_Intersects(trajectory(atPeriod(T.Trip, PR.Period)), PO.geom) )
-    AND atPeriod(T.Trip, PR.Period) ?= PO.geom )
+    -- AND _ST_Intersects(trajectory(atTime(T.Trip, PR.Period)), PO.geom) )
+    AND atTime(T.Trip, PR.Period) ?= PO.geom )
   SELECT DISTINCT T.PointId, T.geom, T.PeriodId, T.Period, V.Licence
   FROM Temp T, Vehicles V
   WHERE T.VehicleId = V.VehicleId
@@ -656,9 +657,9 @@ LOOP
     L1.Licence AS Licence1, L2.Licence AS Licence2
   FROM Trips T1, Licences1 L1, Trips T2, Licences2 L2, Periods1 P, Regions1 R
   WHERE T1.VehicleId = L1.VehicleId AND T2.VehicleId = L2.VehicleId AND L1.Licence < L2.Licence
-  AND intersects(atPeriod(T1.Trip, P.Period), R.geom)
-  AND intersects(atPeriod(T2.Trip, P.Period), R.geom)
-  AND tintersects(atPeriod(T1.Trip, P.Period), atPeriod(T2.Trip, P.Period), TRUE) IS NULL
+  AND intersects(atTime(T1.Trip, P.Period), R.geom)
+  AND intersects(atTime(T2.Trip, P.Period), R.geom)
+  AND tintersects(atTime(T1.Trip, P.Period), atTime(T2.Trip, P.Period), TRUE) IS NULL
   ORDER BY PeriodId, RegionId, Licence1, Licence2
   INTO J;
 
