@@ -2,7 +2,7 @@
 -- Deliveries Data Generator
 -------------------------------------------------------------------------------
 This file is part of MobilityDB.
-Copyright (C) 2020, Esteban Zimanyi, Mahmoud Sakr,
+Copyright (C) 2024, Esteban Zimanyi, Mahmoud Sakr,
   Universite Libre de Bruxelles.
 
 The functions defined in this file use MobilityDB to generate data
@@ -35,22 +35,22 @@ The generated data is saved into the database in which the
 functions are executed using the following tables
 
 *  Warehouses(warehouseId int primary key, node bigint, geom geometry(Point))
-*  Vehicles(vehicleId int primary key, licence text, type text, brand text,
+*  Vehicles(vehId int primary key, licence text, vehType text, brand text,
     warehouse int)
-*  Trips(vehicle int, day date, seq int, source bigint, target bigint)
-    primary key (vehicle, day, seq)
+*  Trips(vehId int, startDate date, seqNo int, source bigint, target bigint)
+    primary key (vehId, StartDate, seqNo)
 *  Destinations(id serial, source bigint, target bigint)
-*  Paths(seq int, path_seq int, start_vid bigint, end_vid bigint,
+*  Paths(seqNo int, path_seq int, start_vid bigint, end_vid bigint,
     node bigint, edge bigint, geom geometry, speed float, category int);
-*  Segments(deliveryId int, seq int, source bigint, target bigint, 
+*  Segments(deliveryId int, seqNo int, source bigint, target bigint,
     trip tgeompoint, trajectory geometry, sourceGeom geometry)
-    primary key (deliveryId, seq)
-*  Deliveries(DeliveryId int primary key, VehicleId int, Day date, 
-    noCustomers int, Trip tgeompoint, Trajectory geometry)
-*  QueryPoints(id int primary key, geom geometry)
-*  QueryRegions(id int primary key, geom geometry)
-*  QueryInstants(id int primary key, instant timestamptz)
-*  QueryPeriods(id int primary key, period tstzspan)
+    primary key (deliveryId, seqNo)
+*  Deliveries(deliveryId int primary key, vehId int, startDate date,
+    noCustomers int, trip tgeompoint, trajectory geometry)
+*  Points(id int primary key, geom geometry)
+*  Regions(id int primary key, geom geometry)
+*  Instants(id int primary key, instant timestamptz)
+*  Periods(id int primary key, period tstzspan)
 
 -----------------------------------------------------------------------------*/
 
@@ -101,14 +101,14 @@ DECLARE
 BEGIN
   RAISE INFO 'Creating the Deliveries and Segments tables';
   DROP TABLE IF EXISTS Deliveries;
-  CREATE TABLE Deliveries(deliveryId int PRIMARY KEY, vehicle int, day date,
+  CREATE TABLE Deliveries(deliveryId int PRIMARY KEY, vehId int, startDate date,
     noCustomers int, trip tgeompoint, trajectory geometry);
   DROP TABLE IF EXISTS Segments;
-  CREATE TABLE Segments(deliveryId int, seq int, source bigint,
+  CREATE TABLE Segments(deliveryId int, seqNo int, source bigint,
     target bigint, trip tgeompoint,
     -- These columns are used for visualization purposes
     trajectory geometry, sourceGeom geometry,
-    PRIMARY KEY (deliveryId, seq));
+    PRIMARY KEY (deliveryId, seqNo));
   delivId = 1;
   aDay = startDay;
   FOR i IN 1..noDays LOOP
@@ -133,21 +133,21 @@ BEGIN
           RAISE INFO '    Delivery starting at %', t;
         END IF;
         -- Get the number of segments (number of destinations + 1)
-        SELECT count(*) INTO noSegments
+        SELECT COUNT(*) INTO noSegments
         FROM Trips
-        WHERE vehicle = j AND day = aDay;
+        WHERE vehId = j AND startDate = aDay;
         <<segments_loop>>
         FOR k IN 1..noSegments LOOP
           -- Get the source and destination nodes of the segment
           SELECT source, target INTO sourceNode, targetNode
           FROM Trips
-          WHERE vehicle = j AND day = aDay AND seq = k;
+          WHERE vehId = j AND startDate = aDay AND seqNo = k;
           -- Get the path
           SELECT array_agg((geom, speed, category) ORDER BY path_seq) INTO path
           FROM Paths P
           WHERE start_vid = sourceNode AND end_vid = targetNode AND edge > 0;
           -- In exceptional circumstances, depending on the input graph, it may
-          -- be the case that pgrouting does not find a connecting path between 
+          -- be the case that pgrouting does not find a connecting path between
           -- two nodes. Instead of stopping the generation process, the error
           -- is reported, the trip for the vehicle and the day is ignored, and
           -- the generation process is continued.
@@ -184,15 +184,15 @@ BEGIN
               RAISE INFO '      Delivery lasted %', deliveryTime;
             END IF;
             t = t + deliveryTime;
-            trip = appendInstant(trip, tgeompoint_inst(endValue(trip), t));
+            trip = appendInstant(trip, tgeompoint(endValue(trip), t));
           END IF;
           alltrips = alltrips || trip;
           SELECT geom INTO sourceGeom FROM Nodes WHERE id = sourceNode;
-          INSERT INTO Segments(deliveryId, seq, source, target, trip, trajectory, sourceGeom)
+          INSERT INTO Segments(deliveryId, seqNo, source, target, trip, trajectory, sourceGeom)
             VALUES (delivId, k, sourceNode, targetNode, trip, trajectory(trip), sourceGeom);
         END LOOP;
         trip = merge(alltrips);
-        INSERT INTO Deliveries(deliveryId, vehicle, day, noCustomers, trip, trajectory)
+        INSERT INTO Deliveries(deliveryId, vehId, startDate, noCustomers, trip, trajectory)
           VALUES (delivId, j, aDay, noSegments - 1, trip, trajectory(trip));
         IF messages = 'medium' OR messages = 'verbose' THEN
           RAISE INFO '    Delivery ended at %', t;
@@ -244,8 +244,8 @@ $$ LANGUAGE plpgsql STRICT;
 -- Main Function
 -------------------------------------------------------------------------------
 
-DROP FUNCTION IF EXISTS deliveries_generate;
-CREATE FUNCTION deliveries_generate(scaleFactor float DEFAULT NULL,
+DROP FUNCTION IF EXISTS deliveries_datagenerator;
+CREATE FUNCTION deliveries_datagenerator(scaleFactor float DEFAULT NULL,
   noWarehouses int DEFAULT NULL, noVehicles int DEFAULT NULL,
   noDays int DEFAULT NULL, startDay date DEFAULT NULL,
   pathMode text DEFAULT NULL, disturbData boolean DEFAULT NULL,
@@ -321,8 +321,8 @@ DECLARE
   -- Constants defining the values of the Vehicles table
   VEHICLETYPES text[] = '{"van", "truck", "pickup"}';
   NOVEHICLETYPES int = array_length(VEHICLETYPES, 1);
-  VEHICLEBRANDS text[] = '{"RAM", "GMC", "Ford", "Chevrolet",  
-    "Volkswagen", "Mercedes-Benz", "Citroën", "Renault", "Peugeot", 
+  VEHICLEBRANDS text[] = '{"RAM", "GMC", "Ford", "Chevrolet",
+    "Volkswagen", "Mercedes-Benz", "Citroën", "Renault", "Peugeot",
     "Fiat", "Nissan", "Toyota", "Daihatsu", "Hyundai", "Honda"}';
   NOVEHICLEBRANDS int = array_length(VEHICLEBRANDS, 1);
 
@@ -441,7 +441,7 @@ BEGIN
   RAISE INFO 'Creating the Vehicle table';
 
   DROP TABLE IF EXISTS Vehicles;
-  CREATE TABLE Vehicles(vehicleId int PRIMARY KEY, licence text, type text, 
+  CREATE TABLE Vehicles(vehId int PRIMARY KEY, licence text, vehType text,
     brand text, warehouse int);
 
   FOR i IN 1..noVehicles LOOP
@@ -453,7 +453,7 @@ BEGIN
   END LOOP;
 
   -- Build indexes to speed up processing
-  CREATE UNIQUE INDEX Vehicles_id_idx ON Vehicles USING BTREE(vehicleId);
+  CREATE UNIQUE INDEX Vehicles_id_idx ON Vehicles USING BTREE(vehId);
 
   -------------------------------------------------------------------------
   -- Create auxiliary benchmarking data
@@ -516,9 +516,9 @@ BEGIN
   RAISE INFO 'Creating the Trips and Destinations tables';
 
   DROP TABLE IF EXISTS Trips;
-  CREATE TABLE Trips(vehicle int, day date, seq int,
+  CREATE TABLE Trips(vehId int, startDate date, seqNo int,
     source bigint, target bigint,
-    PRIMARY KEY (vehicle, day, seq));
+    PRIMARY KEY (vehId, startDate, seqNo));
   DROP TABLE IF EXISTS Destinations;
   CREATE TABLE Destinations(id serial PRIMARY KEY, source bigint, target bigint);
   -- Loop for every vehicle
@@ -526,10 +526,10 @@ BEGIN
     IF messages = 'verbose' THEN
       RAISE INFO '-- Vehicle %', i;
     END IF;
-    -- Get the warehouse node 
+    -- Get the warehouse node
     SELECT W.node INTO warehouseNode
     FROM Vehicles V, Warehouses W
-    WHERE V.vehicleId = i AND V.warehouse = W.warehouseId;
+    WHERE V.vehId = i AND V.warehouse = W.warehouseId;
     day = startDay;
     -- Loop for every generation day
     FOR j IN 1..noDays LOOP
@@ -587,7 +587,7 @@ BEGIN
   DROP TABLE IF EXISTS Paths;
   CREATE TABLE Paths(
     -- The following attributes are generated by pgRouting
-    start_vid bigint, end_vid bigint, path_seq int, node bigint, edge bigint, 
+    start_vid bigint, end_vid bigint, path_seq int, node bigint, edge bigint,
     -- The following attributes are filled in the subsequent update
     geom geometry NOT NULL, speed float NOT NULL, category int NOT NULL,
     PRIMARY KEY (start_vid, end_vid, path_seq));
@@ -647,7 +647,7 @@ BEGIN
   endPgr = clock_timestamp();
 
   -- Build index to speed up processing
-  CREATE INDEX Paths_start_vid_end_vid_idx ON Paths 
+  CREATE INDEX Paths_start_vid_end_vid_idx ON Paths
     USING BTREE(start_vid, end_vid);
 
   -------------------------------------------------------------------------

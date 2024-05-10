@@ -1,7 +1,7 @@
 -------------------------------------------------------------------------------
 -- Prepare the BerlinMOD generator using the OSM data from Brussels
 -------------------------------------------------------------------------------
-
+ 
 -- We need to convert the resulting data in Spherical Mercator (SRID = 3857)
 -- We create two tables for that
 
@@ -62,15 +62,16 @@ SELECT COUNT(*) FROM Nodes;
 */
 
 -------------------------------------------------------------------------------
--- Get communes data to define home and work regions
+-- Get municipalities data to define home and work regions
 -------------------------------------------------------------------------------
 
--- Brussels' communes data from the following sources
+-- Brussels' municipalities data from the following sources
 -- https://en.wikipedia.org/wiki/List_of_municipalities_of_the_Brussels-Capital_Region
 -- http://ibsa.brussels/themes/economie
 
-DROP TABLE IF EXISTS Communes;
-CREATE TABLE Communes(CommuneId,Name,Population,PercPop,PopDensityKm2,NoEnterp,PercEnterp) AS
+DROP TABLE IF EXISTS Municipalities;
+CREATE TABLE Municipalities(MunicipalityId, Name, Population, PercPop,
+ PopDensityKm2, NoEnterp, PercEnterp) AS
 SELECT * FROM (Values
 (1,'Anderlecht',118241,0.10,6680,6460,0.08),
 (2,'Auderghem - Oudergem',33313,0.03,3701,2266,0.03),
@@ -92,49 +93,49 @@ SELECT * FROM (Values
 (18,'Woluwe-Saint-Lambert - Sint-Lambrechts-Woluwe',55216,0.05,7669,3590,0.04),
 (19,'Woluwe-Saint-Pierre - Sint-Pieters-Woluwe',41217,0.03,4631,2859,0.04)) Temp;
 
--- Compute the geometry of the communes from the boundaries in planet_osm_line
+-- Compute the geometry of the Municipalities from the boundaries in planet_osm_line
 
-DROP TABLE IF EXISTS CommunesGeom;
-CREATE TABLE CommunesGeom AS
-SELECT name, way AS geom
+DROP TABLE IF EXISTS MunicipalitiesGeom;
+CREATE TABLE MunicipalitiesGeom(Name, Geom) AS
+SELECT Name, Way
 FROM planet_osm_line L
-WHERE name IN ( SELECT name from Communes );
+WHERE Name IN ( SELECT Name from Municipalities );
 
--- The geometries of the communes are of type Linestring. They need to be
+-- The geometries of the Municipalities are of type Linestring. They need to be
 -- converted into polygons.
 
-ALTER TABLE CommunesGeom ADD COLUMN geompoly geometry;
-UPDATE CommunesGeom
-SET geompoly = ST_MakePolygon(geom);
+ALTER TABLE MunicipalitiesGeom ADD COLUMN GeomPoly geometry;
+UPDATE MunicipalitiesGeom
+SET GeomPoly = ST_MakePolygon(geom);
 
 -- Disjoint components of Ixelles and Saint-Gilles are encoded as two different
 -- features. For this reason ST_Union is needed to make a multipolygon
-ALTER TABLE Communes ADD COLUMN geom geometry;
-UPDATE Communes C
-SET geom = (
-  SELECT ST_Union(geompoly) FROM CommunesGeom G
-  WHERE C.name = G.name);
+ALTER TABLE Municipalities ADD COLUMN Geom geometry;
+UPDATE Municipalities m
+SET Geom = (
+  SELECT ST_Union(GeomPoly) FROM MunicipalitiesGeom g
+  WHERE m.Name = g.Name);
 
 -- Clean up tables
-DROP TABLE IF EXISTS CommunesGeom;
+DROP TABLE IF EXISTS MunicipalitiesGeom;
 
 -- Create home/work regions and nodes
 
 DROP TABLE IF EXISTS HomeRegions;
 CREATE TABLE HomeRegions(id, priority, weight, prob, cumprob, geom) AS
-SELECT communeId, communeId, population, PercPop,
-  SUM(PercPop) OVER (ORDER BY communeId ASC ROWS 
+SELECT MunicipalityId, MunicipalityId, population, PercPop,
+  SUM(PercPop) OVER (ORDER BY MunicipalityId ASC ROWS 
     BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS CumProb,  geom
-FROM Communes;
+FROM Municipalities;
 
 CREATE INDEX HomeRegions_geom_idx ON HomeRegions USING GiST(geom);
 
 DROP TABLE IF EXISTS WorkRegions;
 CREATE TABLE WorkRegions(id, priority, weight, prob, cumprob, geom) AS
-SELECT communeId, communeId, NoEnterp, PercEnterp,
-  SUM(PercEnterp) OVER (ORDER BY communeId ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS CumProb,
-  geom
-FROM Communes;
+SELECT MunicipalityId, MunicipalityId, NoEnterp, PercEnterp,
+  SUM(PercEnterp) OVER (ORDER BY MunicipalityId ASC ROWS
+    BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS CumProb, Geom
+FROM Municipalities;
 
 CREATE INDEX WorkRegions_geom_idx ON WorkRegions USING GiST(geom);
 

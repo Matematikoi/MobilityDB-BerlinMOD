@@ -61,14 +61,14 @@ LOOP
   SELECT L1.Licence AS Licence1, I.InstantId, V3.RowNo, V3.Licence AS Licence2, V3.Dist
   FROM Licences1 L1
   CROSS JOIN Instants1 I
-  JOIN Trips T1 ON L1.VehId = T1.VehId AND T1.Trip @> I.Instant
+  JOIN Trips T1 ON L1.VehId = T1.VehId AND getTime(T1.Trip) @> I.Instant
   CROSS JOIN LATERAL (
     SELECT V2.*, ROW_NUMBER() OVER() AS RowNo
     FROM (
     SELECT V.Licence, valueAtTimestamp(T1.Trip, I.Instant) <-> valueAtTimestamp(T2.Trip, I.Instant) AS Dist
     FROM Trips T2, Vehicles V
     WHERE T2.VehId = V.VehId AND T1.VehId < T2.VehId
-    AND T2.Trip @> I.Instant
+    AND getTime(T2.Trip) @> I.Instant
     ORDER BY valueAtTimestamp(T1.Trip, I.Instant) <-> valueAtTimestamp(T2.Trip, I.Instant)
     LIMIT 3 ) AS V2 ) AS V3
   ORDER BY Licence1, InstantId, RowNo
@@ -97,13 +97,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 19: For each vehicle with a licence from Licences1 and each
@@ -120,9 +121,9 @@ LOOP
   JOIN Periods1 PR ON T.Trip && PR.Period
   CROSS JOIN LATERAL (
     SELECT PO1.*, ROW_NUMBER() OVER () AS RowNo
-    FROM ( SELECT PO.PointId, PO.Geom, trajectory(atPeriod(T.Trip, PR.Period)) <-> PO.Geom AS Dist
+    FROM ( SELECT PO.PointId, PO.Geom, trajectory(atTime(T.Trip, PR.Period)) <-> PO.Geom AS Dist
     FROM Points PO
-    ORDER BY trajectory(atPeriod(T.Trip, PR.Period)) <-> PO.Geom
+    ORDER BY trajectory(atTime(T.Trip, PR.Period)) <-> PO.Geom
     LIMIT 3
   ) AS PO1 ) AS PO2
   ORDER BY L1.Licence, PR.PeriodId, PO2.Dist
@@ -135,7 +136,7 @@ LOOP
     -- Distance between all trajectories of a car (restricted to a period) and a point
     -- DISTINCT is necessary since there are duplicates in Licences1
     SELECT DISTINCT L.Licence, PR.PeriodId, PR.Period, PO.PointId, PO.geom,
-    MIN(st_distance(trajectory(atPeriod(T.Trip, PR.Period)), PO.geom)) AS Dist
+    MIN(st_distance(trajectory(atTime(T.Trip, PR.Period)), PO.geom)) AS Dist
     FROM Trips T, Licences1 L, Periods1 PR, Points PO
     WHERE T.VehId = L.VehId AND T.Trip && PR.Period
     GROUP BY L.licence, PR.PeriodId, PR.Period, PO.PointId, PO.geom
@@ -157,13 +158,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 20: For each region from Regions1 and period from Periods1:
@@ -179,10 +181,10 @@ LOOP
   FROM Regions1 R CROSS JOIN Periods1 P
   CROSS JOIN LATERAL (
     SELECT C1.*, ROW_NUMBER() OVER () AS RowNo FROM (
-    SELECT V.Licence, trajectory(atPeriod(T.trip, P.Period)) <-> R.geom AS Dist
+    SELECT V.Licence, trajectory(atTime(T.trip, P.Period)) <-> R.geom AS Dist
     FROM Trips T, Vehicles V
     WHERE T.VehId = V.VehId AND T.Trip && P.Period
-    ORDER BY trajectory(atPeriod(T.trip, P.Period)) <-> R.geom
+    ORDER BY trajectory(atTime(T.trip, P.Period)) <-> R.geom
     LIMIT 3 ) AS C1 ) AS C2
   ORDER BY R.RegionId, P.PeriodId, C2.RowNo
   INTO J;
@@ -192,7 +194,7 @@ LOOP
   EXPLAIN (ANALYZE, FORMAT JSON)
   WITH DistanceRegionVeh AS (
     SELECT R.RegionId, P.PeriodId, P.Period, V.Licence,
-    MIN(st_distance(trajectory(atPeriod(T.Trip, P.Period)), R.geom)) AS Dist
+    MIN(st_distance(trajectory(atTime(T.Trip, P.Period)), R.geom)) AS Dist
     FROM Regions1 R, Periods1 P, Trips T, Vehicles V
     WHERE T.VehId = V.VehId AND T.Trip && P.Period
     GROUP BY R.RegionId, P.PeriodId, P.Period, V.Licence
@@ -212,13 +214,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 21: For each vehicle with a licence plate number from Licences1
@@ -235,14 +238,14 @@ LOOP
   CROSS JOIN Periods1 P
   CROSS JOIN LATERAL (
     SELECT L2.*, ROW_NUMBER() OVER () AS RowNo FROM (
-    SELECT V.Licence, trajectory(atPeriodSet(T1.Trip, getTime(T2.trip) + P.Period)) <->
-      trajectory(atPeriodSet(T2.Trip, getTime(T1.trip) + P.Period)) AS Dist
+    SELECT V.Licence, trajectory(atTime(T1.Trip, getTime(T2.trip) + P.Period)) <->
+      trajectory(atTime(T2.Trip, getTime(T1.trip) + P.Period)) AS Dist
     FROM Trips T1, Trips T2, Vehicles V
     WHERE T1.VehId = L1.VehId AND T1.trip && P.Period
     AND T2.VehId = V.VehId AND T2.trip && P.Period
     AND getTime(T1.trip) && getTime(T2.trip)
-    ORDER BY trajectory(atPeriodSet(T1.Trip, getTime(T2.trip) + P.Period)) <->
-      trajectory(atPeriodSet(T2.Trip, getTime(T1.trip) + P.Period))
+    ORDER BY trajectory(atTime(T1.Trip, getTime(T2.trip) + P.Period)) <->
+      trajectory(atTime(T2.Trip, getTime(T1.trip) + P.Period))
     LIMIT 3 ) AS L2 ) AS L3
   ORDER BY L1.Licence, P.PeriodId, L3.RowNo, L3.Licence
   INTO J;
@@ -252,8 +255,8 @@ LOOP
   EXPLAIN (ANALYZE, FORMAT JSON)
   WITH DistanceVehVeh AS (
     SELECT L1.Licence AS Licence1, P.PeriodId, P.Period, C2.Licence AS Licence2,
-    st_distance(trajectory(atPeriod(T1.Trip, P.Period)), trajectory(atPeriod(T2.Trip, P.Period))) AS Dist
-    -- minValue(distance(atPeriod(T1.Trip, P.Period),atPeriod(T2.Trip, P.Period))) AS Dist
+    st_distance(trajectory(atTime(T1.Trip, P.Period)), trajectory(atTime(T2.Trip, P.Period))) AS Dist
+    -- minValue(distance(atTime(T1.Trip, P.Period),atTime(T2.Trip, P.Period))) AS Dist
     FROM Trips T1, Licences1 L1, Trips T2, Vehicles C2, Periods1 P
     WHERE T1.VehId = L1.VehId AND T2.VehId = C2.VehId AND T1.VehId <> T2.VehId
     AND T1.Trip && P.Period AND T2.Trip && P.Period
@@ -272,13 +275,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 22: For each vehicle with a licence from Licences1 give the point
@@ -325,10 +329,10 @@ LOOP
   VehRNNPoint AS (
     -- Intervals during which a point was the closest one to a car
     SELECT P.Licence, PV.PointId,
-    getTime(atValue(P.MinDist #= PV.TempMin, True)) AS timeinterval
+    getTime(atValues(P.MinDist #= PV.TempMin, True)) AS timeinterval
     FROM MinDistancePoint P, DistancePointVeh PV
     WHERE P.Licence = PV.Licence -- AND getTime(P.MinDist) && getTime(PV.TempMin)
-    AND atValue(P.MinDist #= PV.TempMin, True) IS NOT NULL
+    AND atValues(P.MinDist #= PV.TempMin, True) IS NOT NULL
   )
   SELECT *
   FROM VehRNNPoint
@@ -339,13 +343,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 23 For each point from Points1 and period from Periods1, give the
@@ -366,7 +371,7 @@ LOOP
   CROSS JOIN LATERAL (
     -- Project the trips T to the period PR. Notice that the
     -- same VehId can appear with various different TripIds
-    SELECT VehId, TripId, atPeriod(Trip, PR.Period) AS Trip
+    SELECT VehId, TripId, atTime(Trip, PR.Period) AS Trip
     FROM Trips
     WHERE Trip && PR.Period ) AS T
   JOIN LATERAL (
@@ -390,7 +395,7 @@ LOOP
   -- Minimum temporal distance between a point and all trajectories of a car
   -- projected to a period
     SELECT PO.PointId, PR.PeriodId, T.VehId,
-      tmin(PO.geom <-> atPeriod(T.Trip, PR.period)) AS TempMin
+      tmin(PO.geom <-> atTime(T.Trip, PR.period)) AS TempMin
     FROM Points1 PO, Periods1 PR, Trips T
     GROUP BY PO.PointId, PR.PeriodId, T.VehId
   ),
@@ -411,11 +416,11 @@ LOOP
   PointRNNVeh AS (
     -- Intervals during which a car has a point as the closest one during a period
     SELECT T.VehId, T.PeriodId, T.PointId,
-    getTime(atValue(M.MinDist #= T.TempMin, True)) AS TimeInterval
+    getTime(atValues(M.MinDist #= T.TempMin, True)) AS TimeInterval
     FROM TempMinDistPointPerVeh T, MinDistPerVeh M
     WHERE T.VehId = M.VehId AND T.PeriodId = M.PeriodId
     -- AND getTime(T.MinDist) && getTime(T.TempMin)
-    AND atValue(M.MinDist #= T.TempMin, True) IS NOT NULL
+    AND atValues(M.MinDist #= T.TempMin, True) IS NOT NULL
   )
   SELECT Licence, PeriodId, PointId, TimeInterval
   FROM PointRNNVeh P, Vehicles V
@@ -428,13 +433,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 24: For each vehicle with a licence from Licences1 and each
@@ -448,7 +454,7 @@ LOOP
   -- Query 24
   EXPLAIN (ANALYZE, FORMAT JSON)
   WITH ProjTrips AS (
-    SELECT PeriodId, VehId, TripId, atPeriod(Trip, Period) AS Trip
+    SELECT PeriodId, VehId, TripId, atTime(Trip, Period) AS Trip
     FROM Periods1, Trips
     -- Use the temporal index if any
     WHERE Trip && Period
@@ -480,7 +486,7 @@ LOOP
     -- Distance between the trajectories of two cars (projected to a period)
     SELECT T1.TripId AS TripId1, L1.Licence AS Licence1,
     T2.TripId AS TripId2, L2.Licence AS Licence2, PR.PeriodId,
-    distance(atPeriod(T1.Trip, PR.Period), atPeriod(T2.Trip, PR.Period)) AS Dist
+    distance(atTime(T1.Trip, PR.Period), atTime(T2.Trip, PR.Period)) AS Dist
     FROM Trips T1, Licences1 L1, Trips T2, Licences1 L2, Periods1 PR
     WHERE T1.VehId = L1.VehId AND T2.VehId = L2.VehId AND T1.VehId <> T2.VehId
     AND T1.Trip && PR.Period AND T2.Trip && PR.Period
@@ -501,11 +507,11 @@ LOOP
   Veh1RNNVeh2 AS (
     -- Intervals during which a car has another car as the closest one during a period
     SELECT V.Licence1, V.PeriodId, CC.Licence2,
-    getTime(unnest(atValue(V.MinDist #= CC.Dist, True))) AS TimeInterval
+    getTime(unnest(atValues(V.MinDist #= CC.Dist, True))) AS TimeInterval
     FROM MinDistanceVeh V, DistanceVeh1Veh2 CC
     WHERE V.Licence1 = CC.Licence1 AND V.PeriodId = CC.PeriodId
     -- AND getTime(V.MinDist) && getTime(CC.Dist)
-    AND atValue(V.MinDist #= CC.Dist, True) IS NOT NULL
+    AND atValues(V.MinDist #= CC.Dist, True) IS NOT NULL
   )
   SELECT *
   FROM Veh1RNNVeh2
@@ -517,13 +523,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 25 For each group of ten vehicles having ten disjoint consecutive
@@ -547,8 +554,8 @@ LOOP
   ),
   SumDistances AS (
     SELECT G.GroupId, PR.PeriodId, PO.PointId,
-    SUM(st_distance(trajectory(atPeriod(T.Trip, PR.Period)), PO.geom)) AS SumDist
-    -- SUM(distance(atPeriod(T.Trip, PR.Period), PO.geom)) AS SumDist
+    SUM(st_distance(trajectory(atTime(T.Trip, PR.Period)), PO.geom)) AS SumDist
+    -- SUM(distance(atTime(T.Trip, PR.Period), PO.geom)) AS SumDist
     FROM Groups G, Periods1 PR, Points1 PO, Trips T
     WHERE T.VehId = G.VehId AND T.Trip && PR.Period
     GROUP BY G.GroupId, PR.PeriodId, PO.PointId
@@ -566,13 +573,14 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   -------------------------------------------------------------------------------
   -- Query 26 Create the ten groups of vehicles having ten disjoint consecutive
@@ -604,8 +612,8 @@ LOOP
     SELECT PA.Group1_id, PA.Group2_id, PR.PeriodId, PR.Period, G1.Licence AS Licence,
     G2.Licence AS OtherLicence,
     -- Minimum distance among all trajectories of two cars
-    MIN(st_distance(trajectory(atPeriod(T1.Trip, PR.Period)), trajectory(atPeriod(T2.Trip, PR.Period)))) AS MinDist
-    -- MIN(minValue(distance(atPeriod(T1.Trip, PR.Period), atPeriod(T2.Trip, PR.Period)))) AS MinDist
+    MIN(st_distance(trajectory(atTime(T1.Trip, PR.Period)), trajectory(atTime(T2.Trip, PR.Period)))) AS MinDist
+    -- MIN(minValue(distance(atTime(T1.Trip, PR.Period), atTime(T2.Trip, PR.Period)))) AS MinDist
     FROM Pairs PA, Groups G1, Groups G2, Periods1 PR, Trips T1, Trips T2
     WHERE PA.Group1_id = G1.Group_id AND PA.Group2_id = G2.Group_id
     AND T1.VehId = G1.VehId AND T2.VehId = G2.VehId AND T1.VehId <> T2.VehId
@@ -631,23 +639,26 @@ LOOP
   ExecutionTime := (J->0->>'Execution Time')::float/1000;
   Duration := make_interval(secs := PlanningTime + ExecutionTime);
   NumberRows := (J->0->'Plan'->>'Actual Rows')::bigint;
-  IF detail THEN
+  IF detailed THEN
   RAISE INFO 'Query: %, Start Time: %, Planning Time: % milisecs, Execution Time: % secs, Total Duration: %, Number of Rows: %',
   trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows;
   ELSE
   RAISE INFO 'Query: %, Total Duration: %, Number of Rows: %', trim(Query), Duration, NumberRows;
   END IF;
-  INSERT INTO execution_tests VALUES (QuerySet, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows);
+  INSERT INTO execution_tests_explain
+  VALUES (Experiment_Id, trim(Query), StartTime, PlanningTime, ExecutionTime, Duration, NumberRows, J);
 
   /*
   -- There are several trajectories of the same object in a period
   SELECT PR.PeriodId, VehId, array_agg(TripId order by TripId)
   FROM Periods1 PR, Trips T1
-  WHERE atPeriod(T1.Trip, PR.Period) IS NOT NULL
+  WHERE atTime(T1.Trip, PR.Period) IS NOT NULL
   GROUP BY PR.PeriodId, VehId
   ORDER BY PR.PeriodId, VehId;
   */
 -------------------------------------------------------------------------------
+
+END LOOP;
 
 RETURN 'The End';
 END;
