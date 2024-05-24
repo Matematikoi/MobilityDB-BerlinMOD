@@ -18,8 +18,7 @@
  * - municipalities.csv
  * - tripsinput.csv
  *
- * Example of usage on psql:
- *     CREATE EXTENSION mobilitydb CASCADE;
+ * Example of usage using psql on a database with the BerlinMOD generated data:
  *     \i berlinmod_export.sql
  *     SELECT berlinmod_export('/home/mobilitydb/data/');
  *****************************************************************************/
