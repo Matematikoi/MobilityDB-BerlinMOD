@@ -5,26 +5,17 @@
  * into MobilityDB using projected (2D) coordinates with SRID 3857
  * https://epsg.io/3857
  * Parameters:
- * - fullpath: states the full path in which the CSV files are located.
- * - gist: states whether GiST or SP-GiST indexes are created on the tables.
- *     By default it is set to TRUE and thus creates GiST indexes.
- * The following files are exported to the given path
- * - instants.csv
- * - periods.csv
- * - points.csv
- * - regions.csv
- * - vehicles.csv
- * - licences.csv
- * - municipalities.csv
- * - tripsinput.csv
- *
- * Example of usage using psql on a database with the BerlinMOD generated data:
- *     \i berlinmod_export.sql
- *     SELECT berlinmod_export('/home/mobilitydb/data/');
+ *    fullpath: states the full path in which the CSV files are located.
+ *    gist: states whether GiST or SP-GiST indexes are created on the tables.
+ *      By default it is set to TRUE and thus creates GiST indexes.
+ * Example of usage on psql:
+ *     CREATE EXTENSION mobilitydb CASCADE;
+ *     \i deliveries_export.sql
+ *     SELECT deliveries_export('/home/mobilitydb/data/');
  *****************************************************************************/
 
-DROP FUNCTION IF EXISTS berlinmod_export;
-CREATE OR REPLACE FUNCTION berlinmod_export(fullpath text)
+DROP FUNCTION IF EXISTS deliveries_export;
+CREATE OR REPLACE FUNCTION deliveries_export(fullpath text)
 RETURNS text AS $$
 DECLARE
   startTime timestamptz;
@@ -34,7 +25,7 @@ BEGIN
 
   startTime = clock_timestamp();
   RAISE INFO '------------------------------------------------------------------';
-  RAISE INFO 'Exporting synthetic data from the BerlinMOD data generator';
+  RAISE INFO 'Exporting synthetic data from the Deliveries data generator';
   RAISE INFO '------------------------------------------------------------------';
   RAISE INFO 'Execution started at %', startTime;
   RAISE INFO '------------------------------------------------------------------';
@@ -46,7 +37,7 @@ BEGIN
     TO ''%sinstants.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Periods';
-  EXECUTE format('COPY (SELECT PeriodId, StartTime, EndTime, Period FROM Periods ORDER BY PeriodId)
+  EXECUTE format('COPY (SELECT PeriodId, Period FROM Periods ORDER BY PeriodId)
     TO ''%speriods.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Points';
@@ -57,28 +48,38 @@ BEGIN
   EXECUTE format('COPY (SELECT RegionId, Geom FROM Regions ORDER BY RegionId)
   TO ''%sregions.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
-  RAISE INFO 'Exporting table Vehicles';
-  EXECUTE format('COPY (SELECT VehicleId, Licence, VehType, Model FROM Vehicles ORDER BY VehicleId)
-  TO ''%svehicles.csv'' DELIMITER '','' CSV HEADER', fullpath);
+  RAISE INFO 'Exporting table VehicleBrands';
+  EXECUTE format('COPY (SELECT BrandId, BrandName FROM VehicleBrands
+    ORDER BY BrandId) TO ''%svehiclebrands.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
-  RAISE INFO 'Exporting table Licences';
-  EXECUTE format('COPY (SELECT LicenceId, Licence, VehicleId FROM Licences ORDER BY LicenceId)
-  TO ''%slicences.csv'' DELIMITER '','' CSV HEADER', fullpath);
+  RAISE INFO 'Exporting table VehicleClasses';
+  EXECUTE format('COPY (SELECT ClassId, ClassName, DutyClass, WeightLimit FROM VehicleClasses
+    ORDER BY ClassId) TO ''%svehicleclasses.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Municipalities';
   EXECUTE format('COPY (SELECT MunicipalityId, MunicipalityName, Population, PercPop, PopDensityKm2, NoEnterp,
-    PercEnterp, ST_AsEWKT(Geom) AS MunicipalityGeom FROM Municipalities ORDER BY MunicipalityId)
+    PercEnterp, ST_AsEWKT(MunicipalityGeo) AS MunicipalityGeo FROM Municipalities ORDER BY MunicipalityId)
   TO ''%smunicipalities.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table RoadSegments';
   EXECUTE format('COPY (SELECT * FROM RoadSegments ORDER BY SegmentId)
   TO ''%sroadsegments.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
-  RAISE INFO 'Exporting table TripsInput';
-  EXECUTE format('COPY (SELECT TripId, VehicleId, StartDate, SeqNo, Point, T FROM TripsInput
-    ORDER BY TripId, StartDate, SeqNo)
-  TO ''%stripsinput.csv'' DELIMITER '','' CSV HEADER', fullpath);
+  RAISE INFO 'Exporting table Warehouses';
+  EXECUTE format('COPY (SELECT WarehouseId, ST_AsEWKT(Geom) AS Geom FROM Warehouses ORDER BY WarehouseId)
+  TO ''%swarehouses.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
+  RAISE INFO 'Exporting table Deliveries transformed into DeliveriesInput';
+  EXECUTE format('COPY (
+    WITH Instants(DeliveryId, VehicleId, StartDate, NoCustomers, Inst) AS (
+      SELECT DeliveryId, VehicleId, StartDate, NoCustomers, unnest(instants(Trip))
+      FROM Deliveries )
+    SELECT DeliveryId, VehicleId, StartDate, NoCustomers, getValue(Inst) AS Point, 
+      getTimestamp(Inst) AS T
+    FROM Instants
+    ORDER BY DeliveryId, VehicleId, StartDate, T )
+    TO ''%sdeliveriesinput.csv'' DELIMITER '','' CSV HEADER', fullpath);
+  
 --------------------------------------------------------------
 
   endTime = clock_timestamp();

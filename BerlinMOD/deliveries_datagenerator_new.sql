@@ -26,7 +26,7 @@ patterns or modify the sampling of positions.
 
 The database must contain the following input relations:
 
-*  Nodes and Edges are the tables defining the road network graph.
+*  Nodes and RoadSegments are the tables defining the road network graph.
   These tables are typically obtained by osm2pgrouting from OSM data.
   The description of these tables is given in the file
   berlinmod_datagenerator.sql
@@ -35,22 +35,32 @@ The generated data is saved into the database in which the
 functions are executed using the following tables
 
 *  Warehouses(warehouseId int primary key, node bigint, geom geometry(Point))
-*  Vehicles(vehId int primary key, licence text, vehType text, brand text,
-    warehouseId int)
-*  Trips(vehId int, startDate date, seqNo int, source bigint, target bigint)
-    primary key (vehId, StartDate, seqNo)
-*  Destinations(id serial, source bigint, target bigint)
-*  Paths(seqNo int, path_seq int, start_vid bigint, end_vid bigint,
-    node bigint, edge bigint, geom geometry, speed float, category int);
-*  Segments(deliveryId int, seqNo int, source bigint, target bigint,
-    trip tgeompoint, trajectory geometry, sourceGeom geometry)
-    primary key (deliveryId, seqNo)
-*  Deliveries(deliveryId int primary key, vehId int, startDate date,
-    noCustomers int, trip tgeompoint, trajectory geometry)
-*  Points(pointId int, geom geometry)
-*  Regions(regionId int, geom geometry)
-*  Instants(instantId int, instant timestamptz)
-*  Periods(periodId int, period)
+*  VehicleClasses(ClassId int primary key, ClassName text, DutyClass text, 
+     WeightLimit text);
+*  VehicleBrands(BrandId int primary key, BrandName text);
+*  Vehicles(vehicleId int primary key, licence text, makeYear int, brandId int,
+     classId int, warehouseId int)
+*  Customers(CustomerId int primary key, CustomerGeo geometry(Point),
+    MunicipalityId);
+*  Deliveries(deliveryId int primary key, vehicleId int, startDate date,
+     noCustomers int, trip tgeompoint, trajectory geometry)
+*  Segments(deliveryId int, segNo int, sourceWH bigint, sourceCust bigint, 
+     targetWH bigint, targetCust bigint, trip tgeompoint, trajectory geometry, 
+     sourceGeom geometry, primary key (deliveryId, segNo))
+*  Points(id int primary key, geom geometry)
+*  Regions(id int primary key, geom geometry)
+*  Instants(id int primary key, instant timestamptz)
+*  Periods(id int primary key, period tstzspan)
+
+In addition the following work tables are created
+
+*  Trips(vehicleId int, startDate date, segNo int, sourceNode bigint, 
+     targetNode bigint, sourceWH int, targetWH int, sourceCust int, 
+     targetCust int, primary key (vehicleId, StartDate, segNo))
+*  Destinations(id serial, sourceNode bigint, target bigint)
+*  Paths(segNo int, path_seq int, start_vid bigint, end_vid bigint,
+     node bigint, edge bigint, geom geometry, speed float, category int,
+     primary key (start_vid, end_vid, path_seq));
 
 -----------------------------------------------------------------------------*/
 
@@ -79,10 +89,12 @@ DECLARE
   -- Number of segments in a delivery (number of destinations + 1)
   noSegments int;
   -- Source and target nodes of a delivery segment
-  sourceNode bigint; targetNode bigint;
+  srcNode bigint; trgtNode bigint;
+  -- Variables used for migrating the information from the Trips to the Segments
+  srcWH int; trgtWH int; srcCust int; trgtCust int;
   -- Path betwen start and end nodes
   path step[];
-  -- Segment trip obtained from a path
+  -- Segments trip obtained from a path
   trip tgeompoint;
   -- All segment trips of a delivery
   alltrips tgeompoint[] = '{}';
@@ -97,18 +109,19 @@ DECLARE
   -- Loop variables
   i int; j int; k int;
   -- Number of vehicles for showing heartbeat messages when message is 'minimal'
-  P_DELIVERIES_NO_VEHICLES int = 50;
+  P_DELIVERIES_NO_VEHICLES int = 100;
 BEGIN
   RAISE INFO 'Creating the Deliveries and Segments tables';
   DROP TABLE IF EXISTS Deliveries;
-  CREATE TABLE Deliveries(deliveryId int PRIMARY KEY, vehId int, startDate date,
-    noCustomers int, trip tgeompoint, trajectory geometry);
+  CREATE TABLE Deliveries(deliveryId int PRIMARY KEY, vehicleId int,
+    startDate date, noCustomers int, trip tgeompoint, trajectory geometry);
   DROP TABLE IF EXISTS Segments;
-  CREATE TABLE Segments(deliveryId int, seqNo int, source bigint,
-    target bigint, trip tgeompoint,
+  CREATE TABLE Segments(deliveryId int, segNo int, 
+    -- These columns are used for an OLAP schema
+    sourceWH bigint, sourceCust bigint, targetWH bigint, targetCust bigint, 
     -- These columns are used for visualization purposes
-    trajectory geometry, sourceGeom geometry,
-    PRIMARY KEY (deliveryId, seqNo));
+    trip tgeompoint, trajectory geometry, sourceGeom geometry,
+    PRIMARY KEY (deliveryId, segNo));
   delivId = 1;
   aDay = startDay;
   FOR i IN 1..noDays LOOP
@@ -125,27 +138,29 @@ BEGIN
             LEAST(j + P_DELIVERIES_NO_VEHICLES - 1, noVehicles);
         END IF;
         IF messages = 'medium' OR messages = 'verbose' THEN
-          RAISE INFO '  -- Vehicle %', j;
+          RAISE INFO '  -- Vehicles %', j;
         END IF;
         -- Start delivery
         t = aDay + time '07:00:00' + createPauseN(120);
         IF messages = 'medium' OR messages = 'verbose' THEN
-          RAISE INFO '    Delivery starting at %', t;
+          RAISE INFO '    Deliveries starting at %', t;
         END IF;
         -- Get the number of segments (number of destinations + 1)
         SELECT COUNT(*) INTO noSegments
         FROM Trips
-        WHERE vehId = j AND startDate = aDay;
+        WHERE vehicleId = j AND startDate = aDay;
         <<segments_loop>>
         FOR k IN 1..noSegments LOOP
           -- Get the source and destination nodes of the segment
-          SELECT source, target INTO sourceNode, targetNode
+          SELECT sourceNode, targetNode, sourceWH, targetWH, sourceCust, 
+            targetCust
+          INTO srcNode, trgtNode, srcWH, trgtWH, srcCust, trgtCust
           FROM Trips
-          WHERE vehId = j AND startDate = aDay AND seqNo = k;
+          WHERE vehicleId = j AND startDate = aDay AND segNo = k;
           -- Get the path
           SELECT array_agg((geom, speed, category) ORDER BY path_seq) INTO path
           FROM Paths P
-          WHERE start_vid = sourceNode AND end_vid = targetNode AND edge > 0;
+          WHERE start_vid = srcNode AND end_vid = trgtNode AND edge > 0;
           -- In exceptional circumstances, depending on the input graph, it may
           -- be the case that pgrouting does not find a connecting path between
           -- two nodes. Instead of stopping the generation process, the error
@@ -154,7 +169,7 @@ BEGIN
           IF path IS NULL THEN
             RAISE INFO 'ERROR: The path of a trip cannot be NULL. ';
             RAISE INFO '       Source node: %, target node: %, k: %, noSegments: %',
-              sourceNode, targetNode, k, noSegments;
+              srcNode, trgtNode, k, noSegments;
             RAISE INFO '       The trip of vehicle % for day % is ignored', j, aDay;
             DELETE FROM Segments where deliveryId = delivId;
             alltrips = '{}';
@@ -181,21 +196,24 @@ BEGIN
             -- Add a delivery time in [10, 60] min using a bounded Gaussian distribution
             deliveryTime = random_boundedgauss(10, 60) * interval '1 min';
             IF messages = 'medium' OR messages = 'verbose' THEN
-              RAISE INFO '      Delivery lasted %', deliveryTime;
+              RAISE INFO '      Deliveries lasted %', deliveryTime;
             END IF;
             t = t + deliveryTime;
             trip = appendInstant(trip, tgeompoint(endValue(trip), t));
           END IF;
           alltrips = alltrips || trip;
-          SELECT geom INTO sourceGeom FROM Nodes WHERE id = sourceNode;
-          INSERT INTO Segments(deliveryId, seqNo, source, target, trip, trajectory, sourceGeom)
-            VALUES (delivId, k, sourceNode, targetNode, trip, trajectory(trip), sourceGeom);
+          SELECT geom INTO sourceGeom FROM Nodes WHERE id = srcNode;
+          INSERT INTO Segments(deliveryId, segNo, sourceWH, sourceCust,
+            targetWH, targetCust, trip, trajectory, sourceGeom)
+          VALUES (delivId, k, srcWH, srcCust, trgtWH, trgtCust, trip, 
+            trajectory(trip), sourceGeom);
         END LOOP;
         trip = merge(alltrips);
-        INSERT INTO Deliveries(deliveryId, vehId, startDate, noCustomers, trip, trajectory)
-          VALUES (delivId, j, aDay, noSegments - 1, trip, trajectory(trip));
+        INSERT INTO Deliveries(deliveryId, vehicleId, startDate, noCustomers, trip,
+          trajectory)
+        VALUES (delivId, j, aDay, noSegments - 1, trip, trajectory(trip));
         IF messages = 'medium' OR messages = 'verbose' THEN
-          RAISE INFO '    Delivery ended at %', t;
+          RAISE INFO '    Deliveries ended at %', t;
         END IF;
         delivId = delivId + 1;
         alltrips = '{}';
@@ -221,18 +239,24 @@ SELECT deliveries_createDeliveries(2, 2, '2020-06-01', false, 'minimal');
 -- Selects the next destination node for a delivery
 -------------------------------------------------------------------------------
 
-DROP FUNCTION IF EXISTS deliveries_selectDestNode;
-CREATE FUNCTION deliveries_selectDestNode(vehicId int, noNodes int,
+DROP FUNCTION IF EXISTS deliveries_selectCustNode;
+CREATE FUNCTION deliveries_selectCustNode(vehicId int, noCustomers int,
   prevNodes bigint[])
 RETURNS bigint AS $$
 DECLARE
   -- Random sequence number
-  seqNo int;
+  segNo int;
+  -- Customers id
+  custId int;
   -- Result of the function
   result bigint;
 BEGIN
   WHILE true LOOP
-    result = random_int(1, noNodes);
+    custId = random_int(1, noCustomers);
+    -- Get the customer node
+    SELECT C.node INTO result
+    FROM Customers C
+    WHERE C.CustomerId = custId;
     IF result != ALL(prevNodes) THEN
       RETURN result;
     END IF;
@@ -247,9 +271,9 @@ $$ LANGUAGE plpgsql STRICT;
 DROP FUNCTION IF EXISTS deliveries_datagenerator;
 CREATE FUNCTION deliveries_datagenerator(scaleFactor float DEFAULT NULL,
   noWarehouses int DEFAULT NULL, noVehicles int DEFAULT NULL,
-  noDays int DEFAULT NULL, startDay date DEFAULT NULL,
-  pathMode text DEFAULT NULL, disturbData boolean DEFAULT NULL,
-  messages text DEFAULT NULL)
+  noCustomers int DEFAULT NULL, noDays int DEFAULT NULL, 
+  startDay date DEFAULT NULL, pathMode text DEFAULT NULL, 
+  disturbData boolean DEFAULT NULL, messages text DEFAULT NULL)
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE
 
@@ -263,18 +287,20 @@ DECLARE
 
   -- By default, the scale factor determines the number of warehouses, the
   -- number of vehicles and the number of days they are observed as follows
-  --    noWarehouses int = round((100 * SCALEFCARS)::numeric, 0)::int;
+  --    noWarehouses int = round((100 * P_SCALE_FACTOR)::numeric, 0)::int;
   --    noVehicles int = round((2000 * sqrt(P_SCALE_FACTOR))::numeric, 0)::int;
+  --    noCustomers int = round((10000 * sqrt(P_SCALE_FACTOR))::numeric, 0)::int;
   --    noDays int = round((sqrt(P_SCALE_FACTOR) * 28)::numeric, 0)::int;
-  -- For example, for P_SCALE_FACTOR = 1.0 these values will be
-  --    noWarehouses = 100
-  --    noVehicles = 2000
-  --    noDays int = 28
+  -- For example, for P_SCALE_FACTOR = 0.1 these values will be
+  --    noWarehouses = 32
+  --    noVehicles = 632
+  --    noCustomers = 3163
+  --    noDays int = 11
   -- Alternatively, you can manually set these parameters to arbitrary
   -- values using the optional arguments in the function call.
 
   -- The day the observation starts ===
-  -- default: P_START_DAY = monday 06/01/2020)
+  -- default: P_START_DAY = Monday 2020-06-01)
   P_START_DAY date = '2020-06-01';
 
   -- Method for selecting a path between a start and end nodes.
@@ -315,16 +341,8 @@ DECLARE
   -- Choose 'none' to only show the main steps of the process. However,
   -- for large scale factors, no message will be issued while executing steps
   -- taking long time and it may seems that the generated is blocked.
-  -- You may change to 'minimal' to be sure that the generator is running.
-  P_MESSAGES text = 'none';
-
-  -- Constants defining the values of the Vehicles table
-  VEHICLETYPES text[] = '{"van", "truck", "pickup"}';
-  NOVEHICLETYPES int = array_length(VEHICLETYPES, 1);
-  VEHICLEBRANDS text[] = '{"RAM", "GMC", "Ford", "Chevrolet",
-    "Volkswagen", "Mercedes-Benz", "Citroën", "Renault", "Peugeot",
-    "Fiat", "Nissan", "Toyota", "Daihatsu", "Hyundai", "Honda"}';
-  NOVEHICLEBRANDS int = array_length(VEHICLEBRANDS, 1);
+  -- Default to 'minimal' to show that the generator is running.
+  P_MESSAGES text = 'minimal';
 
   ----------------------------------------------------------------------
   --  Variables
@@ -337,10 +355,18 @@ DECLARE
   noPaths int; noCalls int;
   -- Number of segments and deliveries generated
   noSegments int; noDeliveries int;
-  -- Warehouse node
-  warehouseNode bigint;
+  -- Warehouses Id
+  warehId int;
+  -- Warehouses node
+  warehNode bigint;
+  -- Customers node
+  custId int;
+  -- Customers node
+  custNode bigint;
   -- Node identifiers of a delivery segment
-  sourceNode bigint; targetNode bigint;
+  srcNode bigint; trgtNode bigint;
+  -- Warehouses/Customers identifiers of a delivery segment
+  srcWH int; trgtWH int; srcCust int; trgtCust int;
   -- Day for which we generate data
   day date;
   -- Start and end time of the execution
@@ -356,8 +382,10 @@ DECLARE
   prevNodes bigint[];
   -- String to generate the trace message
   str text;
-  -- Attributes of table Vehicle
-  licence text; type text; brand text; warehouse int;
+  -- Number of rows in the VehicleBrands and VehicleClasses tables
+  noVehicleBrands int; noVehicleClasses int;
+  -- Attributes of table Vehicles
+  licence text; makeYear int; classId int; brandId int;
 BEGIN
   -------------------------------------------------------------------------
   --  Initialize parameters and variables
@@ -376,6 +404,9 @@ BEGIN
   END IF;
   IF noVehicles IS NULL THEN
     noVehicles = round((2000 * sqrt(scaleFactor))::numeric, 0)::int;
+  END IF;
+  IF noCustomers IS NULL THEN
+    noCustomers = round((10000 * sqrt(scaleFactor))::numeric, 0)::int;
   END IF;
   IF noDays IS NULL THEN
     noDays = round((sqrt(scaleFactor) * 28)::numeric, 0)::int + 2;
@@ -405,10 +436,10 @@ BEGIN
   RAISE INFO '-----------------------------------------------------------------------';
   RAISE INFO 'Parameters:';
   RAISE INFO '------------';
-  RAISE INFO 'No. of warehouses = %, No. of vehicles = %, No. of days = %',
-    noWarehouses, noVehicles, noDays;
-  RAISE INFO 'Start day = %, Path mode = %, Disturb data = %',
-    startDay, pathMode, disturbData;
+  RAISE INFO 'No. of warehouses = %, No. of vehicles = %, No. of customers = %',
+    noWarehouses, noVehicles, noCustomers;
+  RAISE INFO 'No. of days = %, Start day = %, Path mode = %, Disturb data = %',
+    noDays, startDay, pathMode, disturbData;
   SELECT clock_timestamp() INTO startTime;
   RAISE INFO 'Execution started at %', startTime;
   RAISE INFO '----------------------------------------------------------------------';
@@ -417,16 +448,11 @@ BEGIN
   --  Creating the base data
   -------------------------------------------------------------------------
 
-  -- Create a table accumulating all pairs (source, target) that will be
-  -- sent to pgRouting in a single call. We DO NOT test whether we are
-  -- inserting duplicates in the table, the query sent to the pgr_dijkstra
-  -- function MUST use 'SELECT DISTINCT ...'
-
+  -- Create a relation with all warehouses
   RAISE INFO 'Creating the Warehouses table';
   DROP TABLE IF EXISTS Warehouses;
   CREATE TABLE Warehouses(warehouseId int PRIMARY KEY, node bigint,
     geom geometry(Point));
-
   FOR i IN 1..noWarehouses LOOP
     -- Create a warehouse located at that a random node
     INSERT INTO Warehouses(warehouseId, node, geom)
@@ -435,77 +461,114 @@ BEGIN
     ORDER BY id LIMIT 1 OFFSET random_int(1, noNodes) - 1;
   END LOOP;
 
-  -- Create a relation with all vehicles and the associated warehouse.
-  -- Warehouses are associated to vehicles in a round-robin way.
+  -- Create a relation with all vehicle classes
+  DROP TABLE IF EXISTS VehicleClasses;
+  CREATE TABLE VehicleClasses(ClassId int PRIMARY KEY, ClassName text,
+    DutyClass text, WeightLimit text);
+  INSERT INTO VehicleClasses(ClassId, ClassName, DutyClass, WeightLimit) VALUES
+  (1, 'Class 1', 'Light duty', '0-6,000 pounds (0-2,722 kg)'),
+  (2, 'Class 2', 'Light duty', '6,001-10,000 pounds (2,722-4,536 kg)'),
+  (3, 'Class 3', 'Medium duty', '10,001-14,000 pounds (4,536-6,350 kg)'),
+  (4, 'Class 4', 'Medium duty', '14,001-16,000 pounds (6,351-7,257 kg)'),
+  (5, 'Class 5', 'Medium duty', '16,001-19,500 pounds (7,258-8,845 kg)'),
+  (6, 'Class 6', 'Medium duty', '19,501-26,000 pounds (8,846-11,793 kg)'),
+  (7, 'Class 7', 'Heavy duty', '26,001-33,000 pounds (11,794-14,969 kg)'),
+  (8, 'Class 8', 'Heavy duty', '33,001-80,000 pounds (14,969-36,287 kg) and above');
 
-  RAISE INFO 'Creating the Vehicle table';
+  -- Create a relation with all vehicle brands
+  DROP TABLE IF EXISTS VehicleBrands;
+  CREATE TABLE VehicleBrands(BrandId int PRIMARY KEY, BrandName text);
+  INSERT INTO VehicleBrands(BrandId, BrandName) VALUES
+  (1, 'RAM'), (2, 'GMC'), (3, 'Ford'), (4, 'Chevrolet'), (5, 'Volkswagen'),
+  (6, 'Mercedes-Benz'), (7, 'Citroën'), (8, 'Renault'), (9, 'Peugeot'),
+  (10, 'Fiat'), (12, 'Nissan'), (13, 'Toyota'), (14, 'Daihatsu'), 
+  (15, 'Hyundai'), (16, 'Honda');
 
+  -- Create a relation with all vehicles and the associated warehouse
+  -- Warehouses are associated to vehicles in a round-robin way
+  RAISE INFO 'Creating the Vehicles table';
   DROP TABLE IF EXISTS Vehicles;
-  CREATE TABLE Vehicles(vehId int PRIMARY KEY, licence text, vehType text,
-    brand text, warehouseId int);
-
+  CREATE TABLE Vehicles(vehicleId int PRIMARY KEY, licence text, makeYear int,
+    brandId int, classId int, warehouseId int);
   FOR i IN 1..noVehicles LOOP
     licence = berlinmod_createLicence(i);
-    type = VEHICLETYPES[random_int(1, NOVEHICLETYPES)];
-    brand = VEHICLEBRANDS[random_int(1, NOVEHICLEBRANDS)];
-    warehouse = 1 + ((i - 1) % noWarehouses);
-    INSERT INTO Vehicles VALUES (i, licence, type, brand, warehouse);
+    makeYear = EXTRACT(year FROM startDay) - random_int(1, 10);
+    SELECT COUNT(*) INTO noVehicleBrands
+    FROM VehicleBrands;
+    SELECT COUNT(*) INTO noVehicleClasses
+    FROM VehicleClasses;
+    brandId = random_int(1, noVehicleBrands);
+    classId = random_int(1, noVehicleClasses);
+    warehId = 1 + ((i - 1) % noWarehouses);
+    INSERT INTO Vehicles (vehicleId, licence, brandId, makeYear, classId,
+      warehouseId)
+    VALUES (i, licence, brandId, makeYear, classId, warehId);
   END LOOP;
 
-  -- Build indexes to speed up processing
-  CREATE UNIQUE INDEX Vehicles_id_idx ON Vehicles USING BTREE(vehId);
+  -- Create a relation with all customers
+  RAISE INFO 'Creating the Customers table';
+  DROP TABLE IF EXISTS Customers;
+  CREATE TABLE Customers(CustomerId int PRIMARY KEY, node bigint, 
+    CustomerGeo geometry(Point), MunicipalityId int);
+  FOR i IN 1..noCustomers LOOP
+    -- Create a customer located at that a random node
+    INSERT INTO Customers(customerId, node, CustomerGeo)
+    SELECT i, id, geom
+    FROM Nodes N
+    ORDER BY id LIMIT 1 OFFSET random_int(1, noNodes) - 1;
+  END LOOP;
+  UPDATE Customers c SET MunicipalityId = (
+    SELECT MunicipalityId FROM Municipalities m
+    WHERE ST_Intersects(m.MunicipalityGeo, c.CustomerGeo) LIMIT 1 );
 
   -------------------------------------------------------------------------
   -- Create auxiliary benchmarking data
   -- The number of rows these tables is determined by P_SAMPLE_SIZE
   -------------------------------------------------------------------------
 
+  -- Random points
   RAISE INFO 'Creating the Points and Regions tables';
-
-  DROP TABLE IF EXISTS Points;
-  CREATE TABLE Points(PointId int PRIMARY KEY, geom geometry(Point));
+  DROP TABLE IF EXISTS Points CASCADE;
+  CREATE TABLE Points(pointId int PRIMARY KEY, geom geometry(Point));
   INSERT INTO Points
   WITH Temp AS (
-    SELECT id, random_int(1, noNodes) AS node
-    FROM generate_series(1, P_SAMPLE_SIZE) id
+    SELECT pointId, random_int(1, noNodes) AS node
+    FROM generate_series(1, P_SAMPLE_SIZE) pointId
   )
-  SELECT T.id, N.geom
+  SELECT T.pointId, N.geom
   FROM Temp T, Nodes N
   WHERE T.node = N.id;
 
   -- Random regions
-
-  DROP TABLE IF EXISTS Regions;
-  CREATE TABLE Regions(RegionId int PRIMARY KEY, geom geometry(Polygon));
+  DROP TABLE IF EXISTS Regions CASCADE;
+  CREATE TABLE Regions(regionId int PRIMARY KEY, geom geometry(Polygon));
   INSERT INTO Regions
   WITH Temp AS (
-    SELECT id, random_int(1, noNodes) AS node
-    FROM generate_series(1, P_SAMPLE_SIZE) id
+    SELECT regionId, random_int(1, noNodes) AS node
+    FROM generate_series(1, P_SAMPLE_SIZE) regionId
   )
-  SELECT T.id, ST_Buffer(N.geom, random_int(1, 997) + 3.0, random_int(0, 25)) AS geom
+  SELECT T.regionId, ST_Buffer(N.geom, random_int(1, 997) + 3.0, 
+    random_int(0, 25)) AS geom
   FROM Temp T, Nodes N
   WHERE T.node = N.id;
 
   -- Random instants
-
   RAISE INFO 'Creating the Instants and Periods tables';
-
-  DROP TABLE IF EXISTS Instants;
-  CREATE TABLE Instants(InstantId int PRIMARY KEY, instant timestamptz);
+  DROP TABLE IF EXISTS Instants CASCADE;
+  CREATE TABLE Instants(instantId int PRIMARY KEY, instant timestamptz);
   INSERT INTO Instants
-  SELECT id, startDay + (random() * noDays) * interval '1 day' AS instant
-  FROM generate_series(1, P_SAMPLE_SIZE) id;
+  SELECT instantId, startDay + (random() * noDays) * interval '1 day' AS instant
+  FROM generate_series(1, P_SAMPLE_SIZE) instantId;
 
   -- Random periods
-
-  DROP TABLE IF EXISTS Periods;
-  CREATE TABLE Periods(PeriodId int PRIMARY KEY, period tstzspan);
+  DROP TABLE IF EXISTS Periods CASCADE;
+  CREATE TABLE Periods(periodId int PRIMARY KEY, period tstzspan);
   INSERT INTO Periods
   WITH Instants AS (
-    SELECT id, startDay + (random() * noDays) * interval '1 day' AS instant
-    FROM generate_series(1, P_SAMPLE_SIZE) id
+    SELECT periodId, startDay + (random() * noDays) * interval '1 day' AS instant
+    FROM generate_series(1, P_SAMPLE_SIZE) periodId
   )
-  SELECT id, span(instant, instant + abs(random_gauss()) * interval '1 day',
+  SELECT periodId, span(instant, instant + abs(random_gauss()) * interval '1 day',
     true, true) AS period
   FROM Instants;
 
@@ -513,23 +576,29 @@ BEGIN
   -- Generate the deliveries
   -------------------------------------------------------------------------
 
-  RAISE INFO 'Creating the Trips and Destinations tables';
+  -- Create Destinations table accumulating all pairs (sourceNode, targetNode)
+  -- that will be sent to pgRouting in a single call. We DO NOT test whether we
+  -- are inserting duplicates in the table, the query sent to the pgr_dijkstra
+  -- function MUST use 'SELECT DISTINCT ...'
 
+  RAISE INFO 'Creating the Trips and Destinations tables';
   DROP TABLE IF EXISTS Trips;
-  CREATE TABLE Trips(vehId int, startDate date, seqNo int,
-    source bigint, target bigint,
-    PRIMARY KEY (vehId, startDate, seqNo));
+  CREATE TABLE Trips(vehicleId int, startDate date, segNo int,
+    sourceNode bigint, targetNode bigint,
+    sourceWH int, targetWH int, sourceCust int, targetCust int,
+    PRIMARY KEY (vehicleId, startDate, segNo));
   DROP TABLE IF EXISTS Destinations;
-  CREATE TABLE Destinations(id serial PRIMARY KEY, source bigint, target bigint);
+  CREATE TABLE Destinations(id serial PRIMARY KEY, sourceNode bigint,
+    targetNode bigint);
   -- Loop for every vehicle
   FOR i IN 1..noVehicles LOOP
     IF messages = 'verbose' THEN
-      RAISE INFO '-- Vehicle %', i;
+      RAISE INFO '-- Vehicles %', i;
     END IF;
     -- Get the warehouse node
-    SELECT W.node INTO warehouseNode
+    SELECT W.warehouseId, W.node INTO warehId, warehNode
     FROM Vehicles V, Warehouses W
-    WHERE V.vehId = i AND V.warehouseId = W.warehouseId;
+    WHERE V.vehicleId = i AND V.warehouseId = W.warehouseId;
     day = startDay;
     -- Loop for every generation day
     FOR j IN 1..noDays LOOP
@@ -543,32 +612,48 @@ BEGIN
         IF messages = 'verbose' THEN
           RAISE INFO '    Number of destinations: %', noDest;
         END IF;
-        sourceNode = warehouseNode;
+        srcNode = warehNode;
+        srcWH = warehId; srcCust = NULL; trgtWH = NULL; 
         prevNodes = '{}';
-        prevNodes = prevNodes || warehouseNode;
+        prevNodes = prevNodes || warehNode;
         FOR k IN 1..noDest + 1 LOOP
           IF k <= noDest THEN
-            targetNode = deliveries_selectDestNode(i, noNodes, prevNodes);
-            prevNodes = prevNodes || targetNode;
+            trgtNode = deliveries_selectCustNode(i, noCustomers, prevNodes);
+            SELECT C.CustomerId INTO custId
+            FROM Customers C
+            WHERE C.node = trgtNode;
+            prevNodes = prevNodes || trgtNode;
+            trgtCust = custId; trgtWH = NULL; 
           ELSE
-            targetNode = warehouseNode;
+            trgtNode = warehNode;
+            trgtWH = warehId; trgtCust = NULL; 
           END IF;
-          IF sourceNode IS NULL THEN
+          IF srcNode IS NULL THEN
             RAISE EXCEPTION '    Destination node cannot be NULL';
           END IF;
-          IF targetNode IS NULL THEN
+          IF trgtNode IS NULL THEN
             RAISE EXCEPTION '    Destination node cannot be NULL';
           END IF;
-          IF sourceNode = targetNode THEN
-            RAISE EXCEPTION '    Source and destination nodes must be different, node: %', sourceNode;
+          IF srcNode = trgtNode THEN
+            RAISE EXCEPTION '    Source and destination nodes must be different, node: %', srcNode;
           END IF;
           IF messages = 'verbose' THEN
-            RAISE INFO '    Delivery segment from % to %', sourceNode, targetNode;
+            RAISE INFO '    Deliveries segment from % to %', srcNode, trgtNode;
           END IF;
-          -- Keep the start and end nodes of each segment
-          INSERT INTO Trips VALUES (i, day, k, sourceNode, targetNode);
-          INSERT INTO Destinations(source, target) VALUES (sourceNode, targetNode);
-          sourceNode = targetNode;
+          -- Keep the source and target nodes of each segment
+          INSERT INTO Trips(vehicleId, startDate, segNo, sourceNode,
+            targetNode, sourceWH, targetWH, sourceCust, targetCust) 
+          VALUES (i, day, k, srcNode, trgtNode, srcWH, trgtWH, srcCust, 
+            trgtCust);
+          INSERT INTO Destinations(sourceNode, targetNode)
+          VALUES (srcNode, trgtNode);
+          srcNode = trgtNode;
+          srcCust = trgtCust;
+          IF k <= noDest THEN
+            srcWH = NULL; trgtWH = NULL; 
+          ELSE
+            srcWH = NULL; trgtWH = warehId; 
+          END IF;
         END LOOP;
       ELSE
         IF messages = 'verbose' THEN
@@ -594,12 +679,13 @@ BEGIN
 
   -- Select query sent to pgRouting
   IF pathMode = 'Fastest Path' THEN
-    query1_pgr = 'SELECT id, sourcenode as source, targetnode as target, cost_s AS cost, reverse_cost_s as reverse_cost FROM edges';
+    query1_pgr = 'SELECT SegmentId AS id, sourcenode AS source, targetnode AS target, cost_s AS cost, reverse_cost_s as reverse_cost FROM RoadSegments';
   ELSE
-    query1_pgr = 'SELECT id, sourcenode as source, targetnode as target, length_m AS cost, length_m * sign(reverse_cost_s) as reverse_cost FROM edges';
+    query1_pgr = 'SELECT SegmentId AS id, sourcenode AS source, targetnode AS target, SegmentLength AS cost, SegmentLength * sign(reverse_cost_s) AS reverse_cost FROM RoadSegments';
   END IF;
   -- Get the total number of paths and number of calls to pgRouting
-  SELECT COUNT(*) INTO noPaths FROM (SELECT DISTINCT source, target FROM Destinations) AS T;
+  SELECT COUNT(*) INTO noPaths FROM (
+    SELECT DISTINCT sourceNode, targetNode FROM Destinations ) AS T;
   noCalls = ceiling(noPaths / P_PGROUTING_BATCH_SIZE::float);
   IF messages = 'minimal' OR messages = 'medium' OR messages = 'verbose' THEN
     IF noCalls = 1 THEN
@@ -612,7 +698,7 @@ BEGIN
 
   startPgr = clock_timestamp();
   FOR i IN 1..noCalls LOOP
-    query2_pgr = format('SELECT DISTINCT source, target FROM Destinations ORDER BY source, target LIMIT %s OFFSET %s',
+    query2_pgr = format('SELECT DISTINCT sourceNode AS source, targetNode AS target FROM Destinations ORDER BY sourceNode, targetNode LIMIT %s OFFSET %s',
       P_PGROUTING_BATCH_SIZE, (i - 1) * P_PGROUTING_BATCH_SIZE);
     IF messages = 'medium' OR messages = 'verbose' THEN
       IF noCalls = 1 THEN
@@ -630,12 +716,12 @@ BEGIN
     SELECT start_vid, end_vid, path_seq, node, edge,
       -- adjusting directionality
       CASE
-        WHEN T.node = E.sourceNode THEN E.geom
-        ELSE ST_Reverse(E.geom)
-      END AS geom, E.maxspeed_forward AS speed,
-      berlinmod_roadCategory(E.tag_id) AS category
-    FROM Temp T, Edges E
-    WHERE E.id = T.edge;
+        WHEN T.node = R.sourceNode THEN R.SegmentGeo
+        ELSE ST_Reverse(R.SegmentGeo)
+      END AS geom, R.maxspeedFwd AS speed,
+      berlinmod_roadCategory(R.tag_id) AS category
+    FROM Temp T, RoadSegments R
+    WHERE R.SegmentId = T.edge;
     IF messages = 'medium' OR messages = 'verbose' THEN
       IF noCalls = 1 THEN
         RAISE INFO '  Call ended at %', clock_timestamp();
@@ -656,6 +742,29 @@ BEGIN
 
   PERFORM deliveries_createDeliveries(noVehicles, noDays, startDay,
     disturbData, messages);
+
+  -- Create a Date dimension table for OLAP querying
+  RAISE INFO 'Creating the Date table';
+  DROP TABLE IF EXISTS Date;
+  CREATE TABLE Date(
+    DateId serial PRIMARY KEY,
+    Date date NOT NULL UNIQUE,
+    WeekNo int,
+    MonthNo int,
+    MonthName text,
+    Quarter int,
+    Year int);
+  INSERT INTO Date (Date)
+  WITH DateRange(MinDate, MaxDate) AS (
+    SELECT MIN(StartDate), MAX(StartDate) FROM Deliveries )
+  SELECT generate_series(MinDate, MaxDate, interval '1 day')
+  FROM DateRange;
+  UPDATE Date SET
+    WeekNo = EXTRACT(week FROM Date),
+    MonthNo = EXTRACT(month FROM Date),
+    MonthName = TO_CHAR(Date, 'Month'),
+    Quarter = EXTRACT(quarter FROM Date),
+    Year = EXTRACT(year FROM Date);
 
   -- Get the number of deliveries generated
   SELECT COUNT(*) INTO noSegments FROM Segments;
