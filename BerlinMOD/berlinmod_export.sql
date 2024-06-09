@@ -46,7 +46,7 @@ BEGIN
     TO ''%sinstants.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Periods';
-  EXECUTE format('COPY (SELECT PeriodId, StartTime, EndTime, Period FROM Periods ORDER BY PeriodId)
+  EXECUTE format('COPY (SELECT PeriodId, Period FROM Periods ORDER BY PeriodId)
     TO ''%speriods.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Points';

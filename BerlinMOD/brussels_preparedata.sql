@@ -6,11 +6,11 @@
 -- We create two tables for that
 
 DROP TABLE IF EXISTS RoadSegments;
-CREATE TABLE RoadSegments(segmentId bigint, name text, osm_id bigint, 
-  tag_id integer, segmentLength float, sourceNode bigint, targetNode bigint, 
-  source_osm bigint, target_osm bigint, cost_s float, reverse_cost_s float, 
-  one_way integer, maxSpeedFwd float, maxSpeedBwd float, priority float, 
-  segmentGeo geometry);
+CREATE TABLE RoadSegments(segmentId bigint PRIMARY KEY, name text, 
+  osm_id bigint, tag_id integer, segmentLength float, sourceNode bigint, 
+  targetNode bigint, source_osm bigint, target_osm bigint, cost_s float,
+  reverse_cost_s float, one_way integer, maxSpeedFwd float, maxSpeedBwd float, 
+  priority float, segmentGeo geometry);
 INSERT INTO RoadSegments(SegmentId, name, osm_id, tag_id, segmentLength, 
   sourceNode, targetNode, source_osm, target_osm, cost_s, reverse_cost_s, 
   one_way, maxSpeedFwd, maxSpeedBwd, priority, segmentGeo)
@@ -71,9 +71,10 @@ SELECT COUNT(*) FROM Nodes;
 -- http://ibsa.brussels/themes/economie
 
 DROP TABLE IF EXISTS Municipalities;
-CREATE TABLE Municipalities(MunicipalityId, MunicipalityName, Population,
- PercPop, PopDensityKm2, NoEnterp, PercEnterp) AS
-SELECT * FROM (Values
+CREATE TABLE Municipalities(MunicipalityId int PRIMARY KEY, 
+  MunicipalityName text, Population int, PercPop float, PopDensityKm2 int, 
+  NoEnterp int, PercEnterp float);
+INSERT INTO Municipalities VALUES
 (1,'Anderlecht',118241,0.10,6680,6460,0.08),
 (2,'Auderghem - Oudergem',33313,0.03,3701,2266,0.03),
 (3,'Berchem-Sainte-Agathe - Sint-Agatha-Berchem',24701,0.02,8518,1266,0.02),
@@ -92,7 +93,7 @@ SELECT * FROM (Values
 (16,'Ville de Bruxelles - Stad Brussel',82307,0.07,3594,7435,0.09),
 (17,'Watermael-Boitsfort - Watermaal-Bosvoorde',24871,0.02,1928,1899,0.02),
 (18,'Woluwe-Saint-Lambert - Sint-Lambrechts-Woluwe',55216,0.05,7669,3590,0.04),
-(19,'Woluwe-Saint-Pierre - Sint-Pieters-Woluwe',41217,0.03,4631,2859,0.04)) Temp;
+(19,'Woluwe-Saint-Pierre - Sint-Pieters-Woluwe',41217,0.03,4631,2859,0.04);
 
 -- Compute the geometry of the Municipalities from the boundaries in planet_osm_line
 
@@ -116,6 +117,9 @@ UPDATE Municipalities m
 SET MunicipalityGeo = (
   SELECT ST_Union(GeomPoly) FROM MunicipalitiesGeo g
   WHERE m.MunicipalityName = g.Name);
+
+CREATE INDEX Municipalities_MunicipalityGeo_idx ON Municipalities 
+USING GiST(MunicipalityGeo);
 
 -- Clean up tables
 DROP TABLE IF EXISTS MunicipalitiesGeo;

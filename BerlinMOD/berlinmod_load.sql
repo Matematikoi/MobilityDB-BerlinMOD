@@ -64,11 +64,9 @@ BEGIN
   CREATE TABLE Periods
   (
     PeriodId integer PRIMARY KEY,
-    StartTime timestamptz,
-    EndTime timestamptz,
     Period tstzspan
   );
-  EXECUTE format('COPY Periods(PeriodId, StartTime, EndTime, Period)
+  EXECUTE format('COPY Periods(PeriodId, Period)
     FROM ''%speriods.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   IF gist THEN
@@ -133,12 +131,12 @@ BEGIN
   DROP TABLE IF EXISTS Vehicles CASCADE;
   CREATE TABLE Vehicles
   (
-    VehId integer PRIMARY KEY,
+    VehicleId integer PRIMARY KEY,
     Licence varchar(32),
     VehType varchar(32),
     Model varchar(32)
   );
-  EXECUTE format('COPY Vehicles(VehId, Licence, VehType, Model)
+  EXECUTE format('COPY Vehicles(VehicleId, Licence, VehType, Model)
     FROM ''%svehicles.csv'' DELIMITER '','' CSV HEADER', fullpath);
   
 --------------------------------------------------------------
@@ -149,21 +147,21 @@ BEGIN
   (
     LicenceId integer PRIMARY KEY,
     Licence text,
-    VehId integer,
-    FOREIGN KEY (VehId) REFERENCES Vehicles(VehId)
+    VehicleId integer,
+    FOREIGN KEY (VehicleId) REFERENCES Vehicles(VehicleId)
   );
-  EXECUTE format('COPY Licences(LicenceId, Licence, VehId)
+  EXECUTE format('COPY Licences(LicenceId, Licence, VehicleId)
     FROM ''%slicences.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
-  CREATE INDEX Licences_VehId_idx ON Licences USING btree (VehId);
+  CREATE INDEX Licences_VehicleId_idx ON Licences USING btree (VehicleId);
 
-  CREATE VIEW Licences1 (LicenceId, Licence, VehId) AS
-  SELECT LicenceId, Licence, VehId
+  CREATE VIEW Licences1 (LicenceId, Licence, VehicleId) AS
+  SELECT LicenceId, Licence, VehicleId
   FROM Licences
   LIMIT 10;
 
-  CREATE VIEW Licences2 (LicenceId, Licence, VehId) AS
-  SELECT LicenceId, Licence, VehId
+  CREATE VIEW Licences2 (LicenceId, Licence, VehicleId) AS
+  SELECT LicenceId, Licence, VehicleId
   FROM Licences
   LIMIT 10 OFFSET 10;
 
@@ -180,16 +178,18 @@ BEGIN
     PopDensityKm2 integer,
     NoEnterp integer,
     PercEnterp numeric,
-    geom geometry NOT NULL
+    MunicipalityGeo geometry NOT NULL
   );
   EXECUTE format('COPY Municipalities(MunicipalityId, Name, Population,
-      PercPop, PopDensityKm2, NoEnterp, PercEnterp, Geom)
+      PercPop, PopDensityKm2, NoEnterp, PercEnterp, MunicipalityGeo)
     FROM ''%smunicipalities.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   IF gist THEN
-    CREATE INDEX Municipalities_gist_idx ON Municipalities USING gist(Geom);
+    CREATE INDEX Municipalities_MunicipalityGeo_gist_idx 
+    ON Municipalities USING gist(MunicipalityGeo);
   ELSE
-    CREATE INDEX Municipalities_spgist_idx ON Municipalities USING spgist(Geom);
+    CREATE INDEX Municipalities_MunicipalityGeo_spgist_idx 
+    ON Municipalities USING spgist(MunicipalityGeo);
   END IF;
 
 --------------------------------------------------------------
@@ -199,7 +199,7 @@ BEGIN
   CREATE TABLE TripsInput
   (
     TripId integer NOT NULL,
-    VehId integer NOT NULL,
+    VehicleId integer NOT NULL,
     StartDate date,
     SeqNo int,
     Point geometry(Point, 3857) NOT NULL,
@@ -209,7 +209,7 @@ BEGIN
     autovacuum_enabled = false,
     toast.autovacuum_enabled = false
   );
-  EXECUTE format('COPY TripsInput(TripId, VehId, StartDate, SeqNo, Point, T)
+  EXECUTE format('COPY TripsInput(TripId, VehicleId, StartDate, SeqNo, Point, T)
     FROM ''%stripsinput.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Creating table Trips';
@@ -217,24 +217,24 @@ BEGIN
   CREATE TABLE Trips
   (
     TripId integer PRIMARY KEY,
-    VehId integer NOT NULL,
+    VehicleId integer NOT NULL,
     StartDate date,
     SeqNo int,
     Trip tgeompoint NOT NULL,
     Trajectory geometry,
-    FOREIGN KEY (VehId) REFERENCES Vehicles(VehId) 
+    FOREIGN KEY (VehicleId) REFERENCES Vehicles(VehicleId) 
   );
 
-  INSERT INTO Trips(TripId, VehId, StartDate, SeqNo, Trip)
-  SELECT TripId, VehId, StartDate, SeqNo,
+  INSERT INTO Trips(TripId, VehicleId, StartDate, SeqNo, Trip)
+  SELECT TripId, VehicleId, StartDate, SeqNo,
     tgeompointSeq(array_agg(tgeompoint(Point, T) ORDER BY T))
   FROM TripsInput
-  GROUP BY VehId, TripId, StartDate, SeqNo;
+  GROUP BY VehicleId, TripId, StartDate, SeqNo;
 
   UPDATE Trips
   SET Trajectory = trajectory(Trip);
 
-  CREATE INDEX Trips_VehId_idx ON Trips USING btree(VehId);
+  CREATE INDEX Trips_VehicleId_idx ON Trips USING btree(VehicleId);
 
   IF gist THEN
     CREATE INDEX Trips_gist_idx ON Trips USING gist(trip);
