@@ -11,12 +11,14 @@ CREATE EXTENSION IF NOT EXISTS citus;
 
 -- TripId is the primary key of Trips and it is not the distribution column
 ALTER TABLE Trips DROP CONSTRAINT trips_pkey;
+-- cannot truncate a table referenced in a foreign key constraint by a local table
+ALTER TABLE Licences DROP CONSTRAINT licences_vehicleid_fkey;
 
-SELECT create_distributed_table('trips', 'vehicleid');
 SELECT create_distributed_table('vehicles', 'vehicleid');
+SELECT create_distributed_table('trips', 'vehicleid');
 
-SELECT truncate_local_data_after_distributing_table($$public.trips$$);
 SELECT truncate_local_data_after_distributing_table($$public.vehicles$$);
+SELECT truncate_local_data_after_distributing_table($$public.trips$$);
 
 -- Views cannot be distributed or reference tables
 DROP VIEW Licences1;

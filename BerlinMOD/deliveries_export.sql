@@ -56,6 +56,10 @@ BEGIN
   EXECUTE format('COPY (SELECT ClassId, ClassName, DutyClass, WeightLimit FROM VehicleClasses
     ORDER BY ClassId) TO ''%svehicleclasses.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
+  RAISE INFO 'Exporting table Vehicles';
+  EXECUTE format('COPY (SELECT VehicleId, Licence, MakeYear, BrandId, ClassId, WarehouseId FROM Vehicles
+    ORDER BY VehicleId) TO ''%svehicles.csv'' DELIMITER '','' CSV HEADER', fullpath);
+
   RAISE INFO 'Exporting table Municipalities';
   EXECUTE format('COPY (SELECT MunicipalityId, MunicipalityName, Population, PercPop, PopDensityKm2, NoEnterp,
     PercEnterp, ST_AsEWKT(MunicipalityGeo) AS MunicipalityGeo FROM Municipalities ORDER BY MunicipalityId)
@@ -66,8 +70,9 @@ BEGIN
   TO ''%sroadsegments.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Warehouses';
-  EXECUTE format('COPY (SELECT WarehouseId, ST_AsEWKT(Geom) AS Geom FROM Warehouses ORDER BY WarehouseId)
-  TO ''%swarehouses.csv'' DELIMITER '','' CSV HEADER', fullpath);
+  EXECUTE format('COPY (SELECT WarehouseId, ST_AsEWKT(WarehouseGeo) AS WarehouseGeo
+    FROM Warehouses ORDER BY WarehouseId)
+    TO ''%swarehouses.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table Deliveries transformed into DeliveriesInput';
   EXECUTE format('COPY (

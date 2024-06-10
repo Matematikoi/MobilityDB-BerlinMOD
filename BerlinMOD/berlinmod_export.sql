@@ -16,6 +16,7 @@
  * - vehicles.csv
  * - licences.csv
  * - municipalities.csv
+ * - roadsegments.csv
  * - tripsinput.csv
  *
  * Example of usage using psql on a database with the BerlinMOD generated data:
@@ -67,17 +68,23 @@ BEGIN
 
   RAISE INFO 'Exporting table Municipalities';
   EXECUTE format('COPY (SELECT MunicipalityId, MunicipalityName, Population, PercPop, PopDensityKm2, NoEnterp,
-    PercEnterp, ST_AsEWKT(Geom) AS MunicipalityGeom FROM Municipalities ORDER BY MunicipalityId)
+    PercEnterp, ST_AsEWKT(MunicipalityGeo) AS MunicipalityGeo FROM Municipalities ORDER BY MunicipalityId)
   TO ''%smunicipalities.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
   RAISE INFO 'Exporting table RoadSegments';
   EXECUTE format('COPY (SELECT * FROM RoadSegments ORDER BY SegmentId)
   TO ''%sroadsegments.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
-  RAISE INFO 'Exporting table TripsInput';
-  EXECUTE format('COPY (SELECT TripId, VehicleId, StartDate, SeqNo, Point, T FROM TripsInput
-    ORDER BY TripId, StartDate, SeqNo)
-  TO ''%stripsinput.csv'' DELIMITER '','' CSV HEADER', fullpath);
+  RAISE INFO 'Exporting table Trips transformed into TripsInput';
+  EXECUTE format('COPY (
+    WITH Instants(TripId, VehicleId, StartDate, SeqNo, Inst) AS (
+      SELECT TripId, VehicleId, StartDate, SeqNo, unnest(instants(Trip))
+      FROM Trips )
+    SELECT TripId, VehicleId, StartDate, SeqNo, getValue(Inst) AS Point, 
+      getTimestamp(Inst) AS T
+    FROM Instants
+    ORDER BY TripId, VehicleId, StartDate, SeqNo, T )
+    TO ''%stripsinput.csv'' DELIMITER '','' CSV HEADER', fullpath);
 
 --------------------------------------------------------------
 

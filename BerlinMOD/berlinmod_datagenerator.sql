@@ -1321,7 +1321,8 @@ BEGIN
   RAISE INFO 'Creating the Licences table';
 
   DROP TABLE IF EXISTS Licences CASCADE;
-  CREATE TABLE Licences(licenceId int PRIMARY KEY, licence text, vehicleId int);
+  CREATE TABLE Licences(licenceId int PRIMARY KEY, licence text, 
+    vehicleId int REFERENCES Vehicles(VehicleId));
   INSERT INTO Licences(licenceId, licence, vehicleId)
   WITH Temp(licenceId, vehicleId) AS (
     SELECT licenceId, random_int(1, noVehicles)
