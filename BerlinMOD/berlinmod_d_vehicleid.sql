@@ -57,11 +57,6 @@ SELECT RegionId, Geom
 FROM Regions
 LIMIT 10;
 
-CREATE TABLE Trips1 AS
-SELECT *
-FROM Trips
-LIMIT 100;
-
 SELECT create_reference_table('municipalities');
 SELECT create_reference_table('roadsegments');
 SELECT create_reference_table('licences');
